@@ -1,58 +1,57 @@
----
-title: "Covid Model 1"
-author: "Nicholas Nagle"
-date: "3/25/2020"
-output: github_document
----
+Covid Model 1
+================
+Nicholas Nagle
+3/25/2020
 
 # Notation:
 
 Data:
 
-$Y_{it}$ number of cases in county $i$ on data $t$.
+\(Y_{it}\) number of cases in county \(i\) on data \(t\).
 
-$P_i$ population of county $i$.
+\(P_i\) population of county \(i\).
 
-$X_i$: k-vector of covariates for county $i$.
+\(X_i\): k-vector of covariates for county \(i\).
 
 Latent rates:
 
-$\operatorname{Exp}[Y_{it}] = P_i \lambda_{it}$
+\(\operatorname{Exp}[Y_{it}] = P_i \lambda_{it}\)
 
-$\lambda_{it}$: rate (per person) in county $i$ on date $t$
-
+\(\lambda_{it}\): rate (per person) in county \(i\) on date \(t\)
 
 ## Basic idea
+
 The count of cases is a poisson rv with some space-time varying rate.
 
-For an exponentially growing disease, we model the rate as log-linear in time.
+For an exponentially growing disease, we model the rate as log-linear in
+time.
 
-"Flattening the curve" can be detected by a declining slope in log-linear space.
+“Flattening the curve” can be detected by a declining slope in
+log-linear space.
 
-So we'll use:
+So we’ll use:
 
-$\log(\lambda_{i,t}) = a_{i,t} + b_{i,t} t + \theta X_i$
+\(\log(\lambda_{i,t}) = a_{i,t} + b_{i,t} t + \theta X_i\)
 
-$a_{it} = a_{i,t-1} + \epsilon^{[a]}_{i,t}$
+\(a_{it} = a_{i,t-1} + \epsilon^{[a]}_{i,t}\)
 
-$b_{it} = b_{i,t-1} + \epsilon^{[b]}_{i,t}$
+\(b_{it} = b_{i,t-1} + \epsilon^{[b]}_{i,t}\)
 
-We are especially interested in places/times where $\epsilon^{[b]}_{i,t}$ is negative, as that represents "flattening" the curve.
+We are especially interested in places/times where
+\(\epsilon^{[b]}_{i,t}\) is negative, as that represents “flattening”
+the curve.
 
-The following model has two levels for $a$ and $b$ and adds correlation between $\epsilon^{[a]}_{i,t}$ and $\epsilon^{[b]}_{i,t}$.
+The following model has two levels for \(a\) and \(b\) and adds
+correlation between \(\epsilon^{[a]}_{i,t}\) and
+\(\epsilon^{[b]}_{i,t}\).
 
-```{r, warning=FALSE, message=FALSE}
+``` r
 library(tidyverse)
 library(rstan)
 library(tidybayes)
 ```
 
-
-```{r data proc}
-```
-
-
-```{stan, output.var="mod_00.stan"}
+``` stan
 data{
   int N; //number of counties
   int T; //number of time steps
@@ -122,5 +121,3 @@ model{
   }
 }
 ```
-
-
