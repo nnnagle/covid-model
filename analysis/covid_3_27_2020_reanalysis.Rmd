@@ -1,0 +1,97 @@
+---
+title: "covie_3_27_reanalysis"
+author: "Nicholas Nagle"
+date: "3/27/2020"
+output: html_document
+---
+
+```{r, warning=FALSE, message=FALSE}
+library(sf)
+library(tidyverse)
+library(rstan)
+library(tidybayes)
+library(purrr)
+```
+
+```{r data proc}
+
+geodf <- readr::read_rds('../data/washington-acs.RData')
+# Create a unique metro_id
+geodf <- geodf %>% 
+  mutate(metro_fact = fct_explicit_na(as.factor(csa_title),'non-metro'),
+         metro_id = as.numeric(metro_fact),
+         county_fact = as.factor(geoid),
+         county_id = as.numeric(county_fact))
+
+coviddf <- read_csv("../data/washington-covid19.csv")
+# Tasks: convert the date to numeric
+coviddf <- coviddf %>%
+  mutate(geoid = as.character(geoid), 
+         date_r = 1 + as.numeric(date) - min(as.numeric(date))) %>%
+  left_join(geodf %>% select(geoid,county_fact, county_id), by=c('geoid'))
+
+
+covariate_df <- geodf %>% select(acs_median_income_e)
+response_df <- coviddf %>%
+  select(county_id, date_r, new_cases) %>%
+  pivot_wider(names_from = date_r, values_from = new_cases, names_prefix = 'day_',
+              values_fill = list(new_cases=0))
+```
+
+```{r}
+csvfiles <- list.files('../tmp/', pattern='samples_grw_[0-9].csv', full.names=TRUE)
+#stan_fit <- read_stan_csv(paste0('../tmp/', csvfiles))
+#read_stan_csv doesn't work properly??
+
+warmup <- 500
+
+stan_dat <- tibble(file=csvfiles, .chain=1:length(csvfiles)) %>% 
+  group_by(file) %>% nest() %>%
+  mutate(samples = map(.x=file, ~read_csv(.x, comment='#'))) %>%
+  mutate(samples = map(.x=samples, ~mutate(.x,.iteration=1:n() ))) %>%
+  unnest(cols=data) %>%
+  unnest(cols=samples) %>%
+  mutate(.draw = 1:n()) %>%
+  select(.draw, .chain, .iteration, everything()) %>%
+  ungroup()
+
+```
+
+```{r}
+sampleb <- stan_dat %>% select(.draw, .chain, .iteration, starts_with("b0.")) %>%
+  pivot_longer( cols=starts_with("b0."), names_to='.variable', values_to=".value" ) %>%
+  separate(.variable, into=c('.variable','i','t'), sep='\\.') %>%
+  mutate(i=as.numeric(i), t=as.numeric(t))
+
+
+plot_df <- sampleb %>% group_by(i,.chain, .iteration) %>%
+  filter(.iteration > warmup) %>%
+  arrange(t) %>%
+  mutate(diff1 = .value-lag(.value,1),
+         diff2 = .value-lag(.value,2),
+         diff3 = .value-lag(.value,3),
+         diff4 = .value-lag(.value,4),
+         diff5 = .value-lag(.value,5),
+         diff6 = .value-lag(.value,6),
+         diff7 = .value-lag(.value,7)) %>%
+  ungroup() %>%
+  filter(t==31)   %>%
+  select(-.value) %>%
+  pivot_longer(cols = starts_with('diff'),
+               names_to='lag',
+               names_prefix='diff',
+               values_to = 'value' ) %>%
+  mutate(variable=lag, i = as.integer(i)) %>%
+  left_join(geodf %>% st_drop_geometry() %>% select(county_id, county_name),
+            by=c('i'='county_id')) 
+```
+
+```{r}
+ggplot(plot_df %>% filter(i<20), aes(y=value, x=lag)) + 
+  stat_dots(quantiles=20) + 
+  #stat_eye() +
+  facet_wrap(~county_name) + 
+  geom_hline(aes(yintercept=0), color='grey25')
+```
+
+
