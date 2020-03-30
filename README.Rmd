@@ -19,9 +19,34 @@ An initial repo to test spatio-temporal modeling of covid-19.
 
 
 ## Example Data
-There are two files under `data/` relating to Washington state
 
+There are now 4 files under `data/` 
+
+### Newer expanded data
+
+- `2020-03-30-covid19-nyt.csv`: a csv of the latest pull of the NYT county level data with some additional formating. Most states should be fine, but a couple of notes.
+
+    - New York reports `New York City` with a `geoid = NA` instead of the 5 boroughs. Here are the county fips if you want to do anything with them `nyc_county_fips <- c("36061", "36047", "36081", "36005", "36085")`
+    - `Unknown` county data is reported for almost all states.
+    - `Kansas City, Missouri` data is reported seperately from the counties it is apart of. I wrote some code to distribute its counts into the counties using multinomial based on county population. I didn't include it here. Will clean it up and add later if wanted
+
+- `us-acs.RData`: data.frame including `sf` geometries for the whole US. Contains example variables from ACS (now including median age) as well as county membership of MSAs
+
+
+### older washingston data
 - `washington-acs.RData`: data.frame including `sf` geometries. Contains example variables from ACS as well as county membership of MSAs
 - `washington-covid19.csv`: csv of daily county level covid19 cases and deaths.
 
 Both of these files can be recreated with the scripts in `data-raw/`
+
+
+
+## Daily Mobility data
+I didn't pull it into this but you might be interested in using [Descartes Labs Mobility Data](https://github.com/descarteslabs/DL-COVID-19)
+
+```{r}
+mobility_df <- readr::read_csv("https://github.com/descarteslabs/DL-COVID-19/raw/master/DL-us-mobility-daterow.csv")
+
+knitr::kable(head(mobility_df))
+```
+
