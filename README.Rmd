@@ -24,7 +24,7 @@ There are now 4 files under `data/`
 
 ### Newer expanded data
 
-- `2020-03-30-covid19-nyt.csv`: a csv of the latest pull of the NYT county level data with some additional formating. Most states should be fine, but a couple of notes.
+- `2020-03-30-covid19-nyt.csv`: a csv of the latest pull of the [NYT county level data](https://github.com/nytimes/covid-19-data) with some additional formating. Most states should be fine, but a couple of notes.
 
     - New York reports `New York City` with a `geoid = NA` instead of the 5 boroughs. Here are the county fips if you want to do anything with them `nyc_county_fips <- c("36061", "36047", "36081", "36005", "36085")`
     - `Unknown` county data is reported for almost all states.
