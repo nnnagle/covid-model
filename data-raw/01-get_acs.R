@@ -13,13 +13,14 @@ download.file(msa_url, msa_file, mode = "wb")
 # download acs ------------------------------------------------------------
 acs_vars <- c(
   acs_total_pop = "B25026_001",
-  acs_median_income = "B07011_001"
+  acs_median_income = "B07011_001",
+  acs_median_age = "B01002_001"
 )
 
 acsdf <- get_acs(
   geography = "county", 
   variables = acs_vars,
-  state = "WA",
+  state = NULL, # get everystate
   geometry = TRUE, 
   keep_geo_vars = TRUE,
   output = "wide"
@@ -51,4 +52,4 @@ acsdf <- left_join(acsdf, msadf, by = "geoid") %>%
 
 
 # save cleaned up data ----------------------------------------------------
-saveRDS(acsdf, "data/washington-acs.RData")
+saveRDS(acsdf, "data/us-acs.RData")
