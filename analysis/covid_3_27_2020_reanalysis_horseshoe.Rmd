@@ -48,7 +48,7 @@ big_counties <- rowSums(response_df)>50
 ```
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
-csvfiles <- list.files('../tmp/', pattern='samples_grw_[0-9].csv', full.names=TRUE)
+csvfiles <- list.files('../tmp/', pattern='samples_nbh_grw_[0-9].csv', full.names=TRUE)
 #stan_fit <- read_stan_csv(paste0('../tmp/', csvfiles))
 #read_stan_csv doesn't work properly??
 
@@ -60,9 +60,9 @@ stan_dat <- tibble(file=csvfiles, .chain=1:length(csvfiles)) %>%
   mutate(samples = map(.x=samples, ~mutate(.x,.iteration=1:n() ))) %>%
   unnest(cols=data) %>%
   unnest(cols=samples) %>%
-  mutate(.draw = 1:n()) %>%
-  select(.draw, .chain, .iteration, everything()) %>%
-  ungroup()
+  ungroup()  %>%
+  mutate(.draw=1:n()) %>%
+  select(.draw, .chain, .iteration, everything()) 
 
 ```
 
@@ -82,12 +82,14 @@ sample_lambda <- stan_dat %>%
 ```
 
 ```{r, echo=FALSE}
+test_draws <- c(968,802,692,764,534,904,893,768,810,815)
 plot_df <- sample_lambda %>% 
   filter(.iteration > warmup) %>%
   group_by(.chain, .iteration) %>%
   nest() %>%
   ungroup() %>%
-  sample_n(10) %>%
+  #filter(.draw %in% test_draws) %>%
+  sample_n(10)   %>%
   unnest(cols=data) %>%
   left_join(geodf %>% 
               st_drop_geometry() %>% 
@@ -103,6 +105,20 @@ plot_df %>% filter(i %in% which(big_counties)) %>%
   scale_y_log10() +
   ylab('new cases per 100,000 persons')
 ```
+
+```{r}
+plot_df %>% filter(county_name=='King') %>%
+  ggplot(aes(x=date,y=exp(.value)*100000, group=.draw)) +
+  geom_line(alpha = 1/4, color = "#08519C") +
+  facet_wrap(~county_name) + 
+  scale_y_log10() +
+  facet_wrap(~.draw) +
+  ylab('new cases per 100,000 persons')
+```
+
+
+
+
 
 ```{r, echo=FALSE}
 plot_df <- sample_lambda %>% 
@@ -192,4 +208,63 @@ ggplot(plot_df %>% filter(i>20), aes(y=exp(value), x=lag)) +
   ylab('change in rate (multiplicative scale)') +
   xlab('days before March 25') + 
   ggtitle('Probability of changing rate in last X days\nReference=March 25')
+```
+
+
+
+```{r}
+sample_b0_raw <- stan_dat %>% 
+  select(.draw, .chain, .iteration, starts_with("b0_raw")) %>%
+  pivot_longer( cols=starts_with("b0_raw"), names_to='.variable', values_to=".value" ) %>%
+  separate(.variable, into=c('.variable','i','t'), sep='\\.') %>%
+  mutate(i=as.numeric(i), t=as.numeric(t)) %>%  
+  left_join(geodf %>% st_drop_geometry() %>% select(county_id, county_name),
+            by=c('i'='county_id')) %>%
+  filter(county_name=='King', .draw ==672)
+  
+```
+
+```{r}
+ggplot(sample_b0_raw, aes(x=t,y=.value)) + geom_line() 
+```
+
+```{r}
+sample_b0 <- stan_dat %>% 
+  select(.draw, .chain, .iteration, starts_with("b0.")) %>%
+  pivot_longer( cols=starts_with("b0."), names_to='.variable', values_to=".value" ) %>%
+  separate(.variable, into=c('.variable','i','t'), sep='\\.') %>%
+  mutate(i=as.numeric(i), t=as.numeric(t)) %>%  
+  left_join(geodf %>% st_drop_geometry() %>% select(county_id, county_name),
+            by=c('i'='county_id')) %>%
+  filter(county_name=='King', .draw ==672)
+  
+```
+
+```{r}
+ggplot(sample_b0, aes(x=t,y=.value)) + geom_line() 
+```
+
+```{r}
+sample_672 <- stan_dat %>%
+  filter(.draw==672) %>%
+  pivot_longer(cols = 5:8453, names_to='variable',values_to='value') %>%
+  separate(variable, into=c('variable','i','t'), sep='\\.', fill='right') %>%
+  mutate(i=as.numeric(i), t=as.numeric(t)) %>%
+  left_join(geodf %>% st_drop_geometry() %>% select(county_id, county_name),
+            by=c('i'='county_id')) %>%
+  filter(county_name=='King')
+
+sample_672_t <- sample_672 %>%
+  select(-.draw, -.chain, -.iteration, -file, -i, -county_name) %>%
+  filter(!is.na(t))   %>% 
+  pivot_wider(id_cols=c('t'), names_from=variable, values_from=value) %>%
+  mutate(b0_lam = b0_raw * horse_lambda_tilde) %>%
+  pivot_longer(-t, names_to='variable', values_to='value')
+  
+```
+
+```{r}
+ggplot(sample_672_t %>% filter(!is.na(t)), aes(x=t, y=value)) + 
+  geom_line() +
+  facet_wrap(~variable, scales='free_y')
 ```
