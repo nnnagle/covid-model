@@ -125,5 +125,4 @@ stan_fit <- try(sampling(object =          stan_mod,
                      control =         list(adapt_delta = 0.99, max_treedepth=15)) )
 # Save county and covid data to directory
 save(Xdf, coviddf, file=file.path(SAMPLES_DIR, 'R_workspace.RData'))
-
 }
