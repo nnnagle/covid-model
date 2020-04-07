@@ -34,7 +34,7 @@ parameters{
   real<lower=0,upper=3> tau1; // scale of group1-level intercepts
   real<lower=0,upper=.3> taub; // scale on spline coefficients
   matrix[I,T-1] b0_raw; // spline coefficients
-  real<lower=0> a_gamma; // inverse of Neg Bin scale
+  real<lower=.01> a_gamma; // inverse of Neg Bin scale (there is no way that phi>100)
 }
 transformed parameters{
   vector[I] Xtheta;
@@ -59,7 +59,8 @@ model{
   tau1 ~ cauchy(0.,1.);
   taub ~ cauchy(0, taub_scale);
   to_vector(b0_raw) ~ student_t(3,0.,1.);
-  a_gamma ~ gamma(.001,.001);
+  //a_gamma ~ gamma(.001,.001);
+  a_gamma ~ cauchy(0,1.);
   for(n in 1:N) {
     Y[n] ~ neg_binomial_2_log(log_pop[Y_i[n]] + log_lambda[Y_i[n],Y_t[n]],phi);
   }
