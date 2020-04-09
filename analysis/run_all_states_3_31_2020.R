@@ -1,13 +1,13 @@
 
 
-DATE = '2020-03-29' # Date of run
-NYT_FILE <- '../data/2020-03-30-covid19-nyt.csv'
+DATE = '2020-04-03' # Date of run
+NYT_FILE <- '../data/2020-04-03-covid19-nyt.csv'
 ACS_FILE <- '../data/us-acs.RData'
 DATE_0 <- '2020-03-01' # First date to use
 SAMPLES_ROOT <- '../tmp' # All samples will be stored under {SAMPLES_ROOT}/{DATE}/{STATE}
-NITER = 8
-NTHIN =1
-NCHAINS = 1
+NITER = 3000
+NTHIN =3
+NCHAINS = 8
 
 ################################################################################
 
@@ -20,13 +20,15 @@ library(tidybayes)
 # Check the coviddf to make sure that there are enough cases statewide to model.
 # Check for only one county, in which case we'll skip.
 # Except for DC (11), which we'll process with Maryland (24)
-state_list = read_csv("../data/2020-03-30-covid19-nyt.csv") %>%
+state_list = read_csv(NYT_FILE) %>%
   select(geoid) %>%
   mutate(state = substr(geoid, start=1, stop=2)) %>% 
   dplyr::filter(!(state %in%  c('11'))) %>% # DC
   pull(state) %>% 
   unique() %>%
   sort()
+
+#state_list <- '53'
 
 for(i in 1:length(state_list)){
 
