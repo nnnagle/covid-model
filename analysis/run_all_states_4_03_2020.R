@@ -1,17 +1,7 @@
 
+source('PARAMS.R')
 
-DATE = '2020-04-04' # Date of run
-NYT_FILE <- '../data/2020-04-03-covid19-nyt.csv'
-ACS_FILE <- '../data/us-acs.RData'
-DATE_0 <- '2020-03-01' # First date to use
-SAMPLES_ROOT <- '../tmp' # All samples will be stored under {SAMPLES_ROOT}/{DATE}/{STATE}
-NITER = 3000
-NTHIN =3
-NCHAINS = 4
-NNODES = 30 # Number of nodes in cluster
-
-# uncomment to clea the samples directories
-#unlink(file.path(SAMPLES_ROOT,DATE), recursive=TRUE)
+if(CLEAN_DIR) unlink(DATA_DIR, recursive=TRUE)
 
 ################################################################################
 
@@ -68,8 +58,8 @@ for(i in 1:length(state_list)){
   # STATE_FIPS='23' Minnesota i=23
   STATE_FIPS = state_list[i]
   # Create sample directory
-  SAMPLES_DIR <- file.path(SAMPLES_ROOT, DATE, STATE_FIPS)
-  if(!dir.exists(SAMPLES_DIR)) dir.create(SAMPLES_DIR, recursive=TRUE)
+  STATE_SAMPLES_DIR <- file.path(SAMPLES_ROOT, DATE, STATE_FIPS)
+  if(!dir.exists(SAMPLES_DIR)) dir.create(STATE_SAMPLES_DIR, recursive=TRUE)
   
   geodf <- readr::read_rds(ACS_FILE) %>%
     filter(state_fips == STATE_FIPS)
@@ -151,8 +141,8 @@ for(i in 1:length(state_list)){
   
   for(j in 1:NCHAINS){
     stan_fit_list[[slot]] <- list(stan_data=stan_data,
-                                  sample_file = file.path(SAMPLES_DIR, paste0('samples_grw_',j,'.csv')),
-                                  diagnostic_file = file.path(SAMPLES_DIR, paste0('diagnostic_grw_',j,'.csv')),
+                                  sample_file = file.path(STATE_SAMPLES_DIR, paste0('samples_grw_',j,'.csv')),
+                                  diagnostic_file = file.path(STATE_SAMPLES_DIR, paste0('diagnostic_grw_',j,'.csv')),
                                   Xdf = Xdf,
                                   coviddf = coviddf)
     slot = slot + 1

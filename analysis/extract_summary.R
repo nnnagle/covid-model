@@ -13,15 +13,16 @@
 #    - modeled new cases that day
 #    - q05, q15, q25, q50, q75, q85, q95 of modeled new cases
 
-NYT_FILE <- '../data/2020-04-03-covid19-nyt.csv'
-ACS_FILE <- '../data/us-acs.RData'
-DIAG_DF_LOC <- '../tmp/2020-04-04/diagnostic.Rdata'
+# NYT_FILE <- '../data/2020-04-03-covid19-nyt.csv'
+# ACS_FILE <- '../data/us-acs.RData'
+# DIAG_DF_LOC <- '../tmp/2020-04-04/diagnostic.Rdata'
 
-DATE = '2020-04-04' # Date of run
-DATE_0 <- '2020-03-01' # First date to use
-WARMUP = 500
-SAMPLES_DIR <- file.path('../tmp', DATE)
+# DATE = '2020-04-04' # Date of run
+# DATE_0 <- '2020-03-01' # First date to use
+# WARMUP = 500
+# SAMPLES_DIR <- file.path('../tmp', DATE)
 
+source('PARAMS.R')
 source('functions.R')
 # Uses zoom_stan()
 
@@ -55,7 +56,7 @@ summary_df <- diagnostic_df %>% select(State, good_files)
 
 geo_crosswalk_df <- summary_df %>%
   mutate(crosswalk = map(.x=State, function(x){
-    path <- file.path(SAMPLES_DIR, as.character(x), 'standata.RData')
+    path <- file.path(DATA_DIR, as.character(x), 'standata.RData')
     load(path)
     return(stan_dat$Xdf %>% select(geoid, i))
   })) %>%
@@ -65,34 +66,35 @@ geo_crosswalk_df <- summary_df %>%
 
 
 ######################################################################
-options(error=browser)
-options(error=NULL)
+#options(error=browser)
+#options(error=NULL)
 
 summary_df <- summary_df %>%
   mutate(mu_summary = map(good_files, function(x){
     if(length(x)==0){
-      return(tibble(mean = NA,
-                    q05 = NA,
-                    q15 = NA,
-                    q25 = NA,
-                    q50 = NA,
-                    q75 = NA,
-                    q85 = NA,
-                    q95 = NA))
+      return(tibble(mu_mean = NA,
+                    mu_q05 = NA,
+                    mu_q15 = NA,
+                    mu_q25 = NA,
+                    mu_q50 = NA,
+                    mu_q75 = NA,
+                    mu_q85 = NA,
+                    mu_q95 = NA))
     }
     samples <- read_stan_draws(x, par_select=c(starts_with("log_mu")), warmup = WARMUP)
     summary <- samples %>% group_by(.variable) %>%
-      summarize(mean = mean(exp(.value)),
-                q05 = exp(quantile(.value, .05)),
-                q15 = exp(quantile(.value, .15)),
-                q25 = exp(quantile(.value, .25)),
-                q50 = exp(quantile(.value, .5)),
-                q75 = exp(quantile(.value, .75)),
-                q85 = exp(quantile(.value, .85)),
-                q95 = exp(quantile(.value, .95)))
+      summarize(mu_mean = mean(exp(.value)),
+                mu_q05 = exp(quantile(.value, .05)),
+                mu_q15 = exp(quantile(.value, .15)),
+                mu_q25 = exp(quantile(.value, .25)),
+                mu_q50 = exp(quantile(.value, .5)),
+                mu_q75 = exp(quantile(.value, .75)),
+                mu_q85 = exp(quantile(.value, .85)),
+                mu_q95 = exp(quantile(.value, .95))) 
     summary <- summary %>%
       separate(col = .variable, into=c('.variable','i','t'), sep = '\\.') %>%
-      mutate(i = as.integer(i), t=as.integer(t))
+      mutate(i = as.integer(i), t=as.integer(t)) %>%
+      mutate(.variable = 'mu')
     return(summary)
   }))
 
@@ -104,3 +106,8 @@ mu_out <- summary_df %>%
   select(geoid, date, everything()) %>%
   arrange(geoid, date)
 
+
+out_df <- out_df %>% 
+  left_join(mu_out, by=c('geoid', 'date'))
+
+save(out_df, file=file.path(RESULTS_DIR, paste0('results_', DATE,'.RData')))
