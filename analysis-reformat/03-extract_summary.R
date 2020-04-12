@@ -22,8 +22,8 @@
 # WARMUP = 500
 # SAMPLES_DIR <- file.path('../tmp', DATE)
 
-source('PARAMS.R')
-source('functions.R')
+source('analysis/00-PARAMS.R')
+source('analysis/00-functions.R')
 # Uses zoom_stan()
 
 library(tidyverse)
@@ -31,6 +31,7 @@ library(tidyverse)
 ########################################################
 # Set up a county/date sf object
 geodf <- readr::read_rds(ACS_FILE)
+
 coviddf <- read_csv(NYT_FILE) %>%
   filter(new_cases >= 0) %>%
   filter(date >= as.Date(DATE_0)) %>%
@@ -39,7 +40,7 @@ coviddf <- read_csv(NYT_FILE) %>%
 # get a tibble of unique dates, and cartesian product with geodf
 date_df <- coviddf %>% dplyr::select(date, t) %>% unique() %>% arrange(t)
 
-out_df <- crossing(geodf, date_df)
+out_df <- crossing(geodf, date_df) %>% sf::st_as_sf()
 # How do I make this a sf again?
 
 
@@ -49,7 +50,6 @@ FIPS='01 02 04 05 06 08 09 10 12 13 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29
 load(DIAG_DF_LOC)
 
 summary_df <- diagnostic_df %>% select(State, good_files)
-
 # A little bit of overhead: counties may be missing from states, so 
 # we need to create a crosswalk from the id in the samles to the FIPS
 # The necessary info is in standata.Rdata inside each tmp/{DATE}/{STATE} folder
