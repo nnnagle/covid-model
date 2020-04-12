@@ -1,16 +1,29 @@
-
-source('PARAMS.R')
-
-if(CLEAN_DIR) unlink(DATA_DIR, recursive=TRUE)
-
-################################################################################
-
 library(sf)
 library(tidyverse)
 library(rstan)
 library(tidybayes)
 library(foreach)
 library(doParallel)
+library(covidmodeldata)
+################################################################################
+
+source('analysis-reformat/00-PARAMS.R')
+
+if(CLEAN_DIR) unlink(DATA_DIR, recursive=TRUE)
+
+if (is.null(NYT_FILE)) {
+  
+  nyt_data <- get_nyt() %>%
+    format_nyt(skip_assignment = c("44")) # don't assign Rhode Island cases
+  
+} else nyt_data <- read_csv(NYT_FILE)
+
+
+if (is.null(ACS_FILE)) {
+  acs_data <- acs_data # from the covidmodeldata package 
+  } else acs_data <- readr::read_rds(ACS_FILE)
+
+
 
 
 
@@ -19,7 +32,7 @@ library(doParallel)
 # COMPILE MODEL
 # Negative Binomial with Gaussian Random Walk on slope
 
-stan_mod <- stan_model(file='nb_grw.stan', model_name='nb_grw')
+stan_mod <- stan_model(file='analysis-reformat/nb_grw.stan', model_name='nb_grw')
 
 
 ######################################################
@@ -32,12 +45,10 @@ stan_mod <- stan_model(file='nb_grw.stan', model_name='nb_grw')
 # Except for DC (11), which we'll process with Maryland (24)
 
 # Step 1. get a list of states from the NYT file
-state_list = read_csv(NYT_FILE) %>%
-  select(geoid) %>%
-  mutate(state = substr(geoid, start=1, stop=2)) %>% 
-  dplyr::filter(!(state %in%  c('11'))) %>% # DC
-  pull(state) %>% 
-  unique() %>%
+state_list <- nyt_data %>%
+  distinct(state_fips) %>%
+  filter(!(state_fips %in%  c('11'))) %>% # DC
+  pull(state_fips) %>%
   sort()
 
 #state_list <- '53'
@@ -59,25 +70,34 @@ for(i in 1:length(state_list)){
   STATE_FIPS = state_list[i]
   # Create sample directory
   STATE_SAMPLES_DIR <- file.path(SAMPLES_ROOT, DATE, STATE_FIPS)
-  if(!dir.exists(SAMPLES_DIR)) dir.create(STATE_SAMPLES_DIR, recursive=TRUE)
+  if(!dir.exists(STATE_SAMPLES_DIR)) dir.create(STATE_SAMPLES_DIR, recursive=TRUE)
   
-  geodf <- readr::read_rds(ACS_FILE) %>%
+  geodf <- acs_data %>%
     filter(state_fips == STATE_FIPS)
-  coviddf <- read_csv(NYT_FILE) %>% 
-    filter(str_starts(geoid, STATE_FIPS)) %>%
-    filter(new_cases >= 0) %>%
-    filter(date >= as.Date(DATE_0))
+  
+  coviddf <- nyt_data %>% 
+    filter(
+      state_fips == STATE_FIPS,
+      new_cases_mdl >= 0, # using the modeled cases
+      date >= as.Date(DATE_0)
+      )
   
   # Add DC(11) to Maryland (24)
-  if(STATE_FIPS=='24'){
-    coviddf.11 <-  read_csv(NYT_FILE) %>% 
-      filter(str_starts(geoid, '11')) %>%
-      filter(new_cases >= 0) %>%
-      filter(date >= as.Date(DATE_0))
+  if(STATE_FIPS == '24') {
+    
+    coviddf.11 <-  nyt_data %>% 
+      filter(
+        state_fips == '11',
+        new_cases_mdl >= 0, # using the modeled cases
+        date >= as.Date(DATE_0)
+      )
+    
     coviddf <- rbind(coviddf, coviddf.11)
     rm(coviddf.11)
-    geodf.11 <- readr::read_rds(ACS_FILE) %>%
+    
+    geodf.11 <- acs_data %>%
       filter(state_fips == '11')
+    
     geodf <- rbind(geodf, geodf.11)
     rm(geodf.11)
   }
@@ -87,25 +107,50 @@ for(i in 1:length(state_list)){
     select(geoid) %>% 
     arrange() %>% 
     unique() %>%
-    mutate(i = as.integer(as.factor(geoid))) %>%
-    left_join(geodf %>% st_drop_geometry, by='geoid') %>%
+    mutate(
+      i = as.integer(as.factor(geoid))
+      ) %>%
+    left_join(
+      geodf %>% st_drop_geometry, by = 'geoid') %>%
     arrange(i)
+  
   Xdf <- covid_cty %>%
-    select(geoid, i, county_name, csa_code, csa_title, pop=acs_total_pop_e, inc=acs_median_income_e) %>%
-    mutate(pop_s = scale(pop),
-           inc_s = scale(inc),
-           lpop_s = scale(log(pop)))
+    select(
+      geoid, 
+      i, 
+      county_name, 
+      csa_code, 
+      csa_title, 
+      pop = acs_total_pop_e, 
+      inc = acs_median_income_e
+      ) %>%
+    mutate(
+      pop_s = scale(pop),
+      inc_s = scale(inc),
+      lpop_s = scale(log(pop))
+      )
+  
   # Create metro code
   metro_df <- Xdf %>% 
     arrange(csa_code) %>%
-    group_by(csa_code)   %>%
-    summarize( ncounties_j = n()) %>%
-    mutate(msa_j = 1:n())
+    group_by(csa_code) %>%
+    summarize(
+      ncounties_j = n()
+      ) %>%
+    mutate(
+      msa_j = 1:n()
+      )
+  
   # If there is a metro with two counties, we can create a level for it.
   # Otherwise, we have to eliminate the metro-level.
   level_1_bool <- metro_df %>% 
-    filter(!is.na(csa_code)) %>% 
-    summarize(bool=max(ncounties_j)>1) %>% pull(bool)
+    filter(
+      !is.na(csa_code)
+      ) %>% 
+    summarize(
+      bool = max(ncounties_j) > 1
+      ) %>% 
+    pull(bool)
   
   # Insert that id back into the main dataframe, and create a code for NA:
   if(level_1_bool){
@@ -113,16 +158,18 @@ for(i in 1:length(state_list)){
   } else {
     Xdf$msa_j = NA
   }
-#  Xdf <- Xdf %>% left_join(metro_df, by='csa_code')  %>%
-#    mutate(msa_j = ifelse(is.na(msa_j), max(msa_j,na.rm=TRUE)+1, msa_j))
-  
+
   # Give the i and t indexes to coviddata
   coviddf <- coviddf %>%
-    left_join(Xdf %>% select(geoid, i), by='geoid') %>%
-    mutate(t = as.numeric(date) - as.numeric(as.Date(DATE_0))+1)
+    left_join(
+      Xdf %>% select(geoid, i), by='geoid'
+      ) %>%
+    mutate(
+      t = as.numeric(date) - as.numeric(as.Date(DATE_0))+1
+      )
   
   stan_data <- list(Pop    = Xdf %>% pull(pop),
-                    Y      = coviddf %>% pull(new_cases),
+                    Y      = coviddf %>% pull(new_cases_mdl), # using modeled cases
                     Y_i    = coviddf %>% pull(i),
                     Y_t    = coviddf %>% pull(t),
                     I      = max(coviddf$i),
