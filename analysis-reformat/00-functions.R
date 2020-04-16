@@ -244,6 +244,7 @@ vroom_stan <- function(file, ...) {
 
 
 fread_stan <- function(file, col_select, ...) {
+  require(tidyselect)
   col_expr <- rlang::expr(col_select)
   
   # was having trouble getting vroom_stan() to work on windows machine (what the current VM is)
@@ -259,7 +260,7 @@ fread_stan <- function(file, col_select, ...) {
   
   # set nthread to 1 below,  because this may be called by future_map
   out <- data.table::fread(cmd = grepcmd, sep = ",", nThread = 1, 
-                           colClasses = "numeric", select = col_select, 
+                           colClasses = "numeric", select = all_of(col_select), 
                            ...)
 
   out <- tibble::as_tibble(out)

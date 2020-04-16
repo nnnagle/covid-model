@@ -32,7 +32,7 @@ if (is.null(ACS_FILE)) {
 # COMPILE MODEL
 # Negative Binomial with Gaussian Random Walk on slope
 
-stan_mod <- stan_model(file='analysis-reformat/nb_grw.stan', model_name='nb_grw')
+stan_mod <- stan_model(file='analysis-reformat/nb_spline.stan', model_name='nb_spline')
 
 
 ######################################################
@@ -40,19 +40,22 @@ stan_mod <- stan_model(file='analysis-reformat/nb_grw.stan', model_name='nb_grw'
 
 
 # We need a list of states.
-# Check the coviddf to make sure that there are enough cases statewide to model.
-# Check for only one county, in which case we'll skip.
+# NO LONGER NECESSARY Check the coviddf to make sure that there are enough cases statewide to model.
 # Except for DC (11), which we'll process with Maryland (24)
 
-# Step 1. get a list of states from the NYT file
+# Step 1. get a list of states from the NYT file, 
+# and order from most counties to least.
 state_list <- nyt_data %>%
-  distinct(state_fips) %>%
-  filter(!(state_fips %in%  c('11'))) %>% # DC
-  pull(state_fips) %>%
-  sort()
+  group_by(state_fips) %>%
+  distinct(county_name) %>%
+  summarize(n=n()) %>%
+  filter(!(state_fips %in%  c('11'))) %>% # DC 
+  filter(!is.na(state_fips)) %>%
+  arrange(desc(n)) %>%
+  pull(state_fips)
 
 #state_list <- '53'
-
+#state_list <- state_list[1:7]
 
 
 #####################################################
@@ -168,22 +171,73 @@ for(i in 1:length(state_list)){
       t = as.numeric(date) - as.numeric(as.Date(DATE_0))+1
       )
   
+  ######################################
+  # Create spline basis for the time series
+  # With one knot pert date, the spline is Ba = Ia
+  # 1. Set up a random walk smoothing matrix S=DD'
+  # i.e. a ~ N(0,DD')
+  # 2. Reparameterize so that Ba = Za', a' ~ N(0,I)
+  T <- max(coviddf$t) + TPRED
+  spl_K <- T-2 # max: T-2 to use full rank | min: 1 to use parabolic
+  spl_K <- 16
+
+  ######################################
+  # Create day of week design matrix
+  X_dow <- tibble(t = seq(1:(T+TPRED))) %>%
+    mutate(date = as.Date(DATE_0)+t-1) %>%
+    mutate(dow = factor(weekdays(date), 
+                        levels= c("Monday",  "Tuesday", "Wednesday", 
+                                  "Thursday", "Friday", "Saturday","Sunday" ))) %>%
+    model.matrix(~dow-1, data=.)
+  
+  
+    
+  ####################################
+  # RE method 1
+  D <- diff(diag(T+TPRED),differences = 2)
+  D.svd <- svd(t(D))
+  Z <- D.svd$u %*% diag(1/D.svd$d)
+  Z <- Z[,(ncol(Z)+1-spl_K):ncol(Z)]
+  ####################################
+  ## RW method 2
+  ## intercept + tp*beta, beta ~ N(0,sigma)
+  ## truncated polynomial basis:
+  #tp <- spam::toeplitz.spam(y=seq(1:(T+TPRED))-1, x=rep(0,(T+TPRED)))
+  #tp <- tp[,1:(T+TPRED-1)]
+  ## qr decomposition
+  #tp.qr <- qr(tp, LAPACK=FALSE)
+  #Q <- qr.Q(tp.qr)
+  #R <- qr.R(tp.qr)
+  ## svd decomp of R
+  #R.svd <- svd(R)
+  #Z <- Q %*% R.svd$u %*% diag(R.svd$d)
+  #Z <- Z[1:spl_K]
+  ## Now, we can do intercept + Za, a~N(0,sigma)
+  ## compared to tp, Z has orthogonal columns
+  ## PRIOR on variance os spline
+  ## Expect the value to grow by 3 orders of magnitude over 30 days
+  ## The variance seems to follow a quadratic equation with time, but I
+  ## don't know what the parameters are.
+  ## Trial and error suggests .02 is a good prior for the variance.
+  
   stan_data <- list(Pop    = Xdf %>% pull(pop),
                     Y      = coviddf %>% pull(new_cases_mdl), # using modeled cases
                     Y_i    = coviddf %>% pull(i),
                     Y_t    = coviddf %>% pull(t),
                     I      = max(coviddf$i),
-                    T      = max(coviddf$t),
+                    T      = T+TPRED,
                     N      = nrow(coviddf),
-                    K      = 2,
-                    X      = Xdf %>% select(lpop_s, inc_s),
+                    K      = 1,
+                    X      = Xdf %>% select(lpop_s),
+                    X_dow  = X_dow,
+                    spl_K  = spl_K,
+                    Z_spl  = Z,
                     J1     = if(all(is.finite(Xdf$msa_j)))
                       max(Xdf$msa_j) else 0,
                     group1 = if(all(is.finite(Xdf$msa_j)))  
                       Xdf %>% pull(msa_j) else 
                         rep(0,max(coviddf$i)),
-                    taub_scale = .1,
-                    zero_scale=.001 # scaling for the sum-to-zero consraint
+                    taub_scale = .05
   )
   
   for(j in 1:NCHAINS){
@@ -216,11 +270,13 @@ r <- foreach(i = 1:length(stan_fit_list),
                            thin =            NTHIN,
                            chains =          1,
                            cores =           1,
+                           warmup =          WARMUP*NTHIN,
                            sample_file =     stan_fit_list[[i]]$sample_file,
                            diagnostic_file = stan_fit_list[[i]]$diagnostic_file,
                            append_samples =  FALSE,
                            #init = 0,
-                           control =         list(adapt_delta = 0.99, max_treedepth=15)) ) 
+                           control =         list(adapt_delta = 0.99, max_treedepth=10)) ) 
+  return(1)
 }
 stopCluster(cl)
 

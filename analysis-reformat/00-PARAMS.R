@@ -1,18 +1,25 @@
-DATE <- Sys.Date() # Date of run
+DATE <- '2020-04-14' # Date of run
 NYT_FILE <- NULL
 ACS_FILE <- NULL
 DATE_0 <- '2020-03-01' # First date to use
-ROOT = ""
-SAMPLES_ROOT <- 'tmp' # All samples will be stored under {SAMPLES_ROOT}/{DATE}/{STATE}
-NITER = 3000
-NTHIN =3
-NCHAINS = 8
-NNODES = 80 # Number of nodes in cluster
-DATA_DIR <- file.path('tmp',DATE)
+##ROOT = ""
+SAMPLES_ROOT <- ifelse(Sys.info()[["nodename"]] == 'quetelet',
+                       '/data/covid/tmp',
+                       'tmp') # All samples will be stored under {SAMPLES_ROOT}/{DATE}/{STATE}
+NITER = 6000
+NTHIN = 3
+NCHAINS = 4
+WARMUP = (NITER/NTHIN)/2
+WARMUP = 500 # WARMUP is number of retained (after thinning) samples
+NNODES = ifelse(Sys.info()[["nodename"]] == 'quetelet',
+                30,
+                80) # Number of nodes in cluster
+DATA_DIR <- file.path(SAMPLES_ROOT,DATE)
 DIAG_DF_LOC <- file.path(DATA_DIR, 'diagnostic.Rdata')
 RESULTS_DIR <- file.path('results')
-CLEAN_DIR = FALSE # SET TO TRUE TO DELETE the DATA_DIR
-WARMUP = (NITER/NTHIN)/2
+CLEAN_DIR = TRUE # SET TO TRUE TO DELETE the DATA_DIR
+
+TPRED = 7 # Number of days forward to predict (from last data day, not from Sys.Date())
 
 
 # DATE = '2020-04-04' # Date of run
