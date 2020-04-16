@@ -142,7 +142,7 @@ read_and_summarize <- function(files, par_select, warmup = 0,  k = NULL) {
       ) %>%
     mutate(
       # samples = map(.x = files, ~vroom_stan(.x, col_select = !!par_enquo))
-      samples = map(.x = files, ~fread_stan(.x, col_select = par_select))
+      samples = map(.x = files, ~fread_stan(.x, col_select = !!par_enquo))
       ) %>%
     mutate(
       samples = map(.x = samples, ~mutate(.x, .iteration = 1:n()))
@@ -165,7 +165,7 @@ read_and_summarize <- function(files, par_select, warmup = 0,  k = NULL) {
     select(
       .chain,
       .iteration,
-      par_select
+      !!par_enquo
       ) %>%
     pivot_longer(
       cols = !!par_enquo,
@@ -244,6 +244,7 @@ vroom_stan <- function(file, ...) {
 
 
 fread_stan <- function(file, col_select, ...) {
+  col_expr <- rlang::expr(col_select)
   
   # was having trouble getting vroom_stan() to work on windows machine (what the current VM is)
   # same idea as vroom_stan, but avoids making the tmp file
@@ -253,9 +254,10 @@ fread_stan <- function(file, col_select, ...) {
   grepcmd <- paste0("grep -vh '^#' ", file)
   
   col_names <- data.table::fread(cmd = grepcmd, sep = ",", nThread = 1, nrows = 0)
-  col_select <- tidyselect::eval_select(starts_with("b0_raw"), col_names)
+  col_select <- tidyselect::eval_select(col_expr, col_names)
   names(col_select) <- NULL
   
+  # set nthread to 1 below,  because this may be called by future_map
   out <- data.table::fread(cmd = grepcmd, sep = ",", nThread = 1, 
                            colClasses = "numeric", select = col_select, 
                            ...)
@@ -264,5 +266,70 @@ fread_stan <- function(file, col_select, ...) {
   
   
   return(out)
+}
+
+diagnose_var <- function(df){
+  # take a data.frame with a single variable, but all .chains and .iterations
+  # Calculate Effective Sample Size, Rhat,
+  # and Rhats dropping one chain at a time
+  MN = nrow(df)
+  M = max(df$.chain)
+  N <- MN/M
+  sample_mat <- df %>% 
+    arrange(.chain, .iteration) %>%
+    pull(.value) %>%
+    matrix(data=., nrow=N, ncol=M)
+  drop_k_rhat <- lapply(1:M, 
+                        function(x) Rhat(sample_mat[,-x]))
+  names(drop_k_rhat) <- paste0('Rhat_drop_',1:M)
+  return(
+    tibble(
+      ess_bulk = ess_bulk(sample_mat),
+      ess_tail = ess_tail(sample_mat),
+      Rhat = Rhat(sample_mat)) %>%
+      cbind(., as_tibble(drop_k_rhat))
+  )
+}
+
+read_and_diagnose <- function(files, par_select, warmup = 0) {
+  require(tidyselect)
+  par_expr <- rlang::expr(par_select)
+  par_enquo <- rlang::enquo(par_select)
+  samples <- tibble(files = files) %>%
+    mutate(
+      .chain = 1:n()
+    ) %>%
+    mutate(
+      samples = map(.x = files, ~fread_stan(.x, col_select = all_of(!!par_enquo)))
+    ) %>%
+    mutate(
+      samples = map(.x=samples, 
+                    ~mutate(.x, .iteration=row_number()) %>%
+                      filter(.iteration > warmup))
+    ) %>%
+    select(
+      .chain, 
+      samples
+    ) %>%
+    unnest(
+      cols=samples) %>%
+    mutate(
+      .draw = row_number() ) %>%
+    pivot_longer(
+      cols = !!par_enquo,
+      names_to = '.variable',
+      values_to = '.value' ) %>% 
+    group_by(
+      .variable) %>%
+    nest()   %>%
+    mutate(
+      diag = purrr::map(.x=data, 
+                        .f=~diagnose_var(.x))) %>%
+    select(
+      .variable, 
+      diag) %>%
+    unnest(
+      cols=diag) %>%
+    ungroup()
 }
 
