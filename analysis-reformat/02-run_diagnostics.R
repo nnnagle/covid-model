@@ -26,6 +26,7 @@ plan(cluster, workers = cl)
   
 # Evaluate Rhat for the parameter bo_raw
 # using all chains
+<<<<<<< HEAD
 diagnostic_df <- 
   tibble(
     State = strsplit(FIPS, split=' ')[[1]]) %>%
@@ -38,6 +39,13 @@ diagnostic_df <-
                                          warmup=WARMUP, 
                                          par_select=c(starts_with('tau'),
                                                       starts_with('log_lambda')))))
+=======
+diagnostic_df <- tibble(State = strsplit(FIPS, split=' ')[[1]]) %>%
+  mutate(files = future_map(.x=State, ~get_sample_paths(.x, DATA_DIR))) %>%
+  mutate(diag = future_map(.x=files, ~read_and_diagnose(.x, WARMUP, 
+                                                  par_select=c(starts_with('tau'),
+                                                               starts_with('log_lambda')))))
+>>>>>>> 8f211c629116d633f096fbf781f99a96f0768131
 
 ###################################################################
 # Determine which chains to use here....
