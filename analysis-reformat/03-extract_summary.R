@@ -20,6 +20,7 @@
 # DATE = '2020-04-04' # Date of run
 # DATE_0 <- '2020-03-01' # First date to use
 # WARMUP = 500
+
 # SAMPLES_DIR <- file.path('../tmp', DATE)
 
 source('analysis-reformat/00-PARAMS.R')
@@ -127,6 +128,8 @@ summary_lambda <-
     )
   )
 
+##############################################
+# Create an tibble with one row per county/date
 lambda_out <- summary_lambda %>%
   select(
     State, 
@@ -145,23 +148,109 @@ lambda_out <- summary_lambda %>%
     geoid, 
     date)
 
-
+# Merge into sf object
 out_df <- out_df %>% 
   left_join(lambda_out, by=c('geoid', 'date'))
 
-ggplot(data=
-         out_df %>% 
-         filter(state_fips=='51'), 
-       aes(
-         x=date, 
-         y=lambda_q50*10000,
-         ymax = lambda_q85*10000,
-         ymin = lambda_q15*10000)) + 
-  geom_ribbon(fill='grey70') +
+# normalize lambda
+out_df <-
+  out_df %>%
+  group_by(geoid) %>%
+  mutate(fudge = sum(new_cases_mdl,na.rm=TRUE)/(sum(lambda_q50,na.rm=TRUE)*acs_total_pop_e)) %>%
+  ungroup()
+
+
+########################################################
+# Create a panel plot of all counties for a state.
+ggplot(
+  data= out_df %>% 
+    filter(state_fips=='06'), 
+  aes( 
+    x=date, 
+    y=fudge*lambda_q50*10000,
+    ymax = fudge*lambda_q85*10000,
+    ymin = fudge*lambda_q15*10000)) + 
+  geom_ribbon( 
+    fill='grey50') +
   geom_line() + 
-  #geom_point(aes(y=(new_cases_mdl+1/10000)/acs_total_pop_e*10000)) +
-  facet_wrap(~county_name) +
-  scale_y_log10()
+  geom_point(aes(y=(new_cases_mdl)/acs_total_pop_e*10000),alpha=.1,color='red') +
+  facet_wrap(
+    ~county_name,
+    scales='free_y') +
+  scale_y_continuous('New Cases per 10,000 people per day') +
+  scale_x_date(
+    limits = c(min(coviddf$date+7), max(coviddf$date))) + 
+  theme(
+    axis.text.x = element_text(angle=45, hjust = 1, vjust=1)
+  )
 
 
+
+##############################################
+# Create a state_boundary layer for reference
+state <- geodf %>%
+  group_by(state_fips, state_name) %>%
+  summarize()
+
+
+
+
+
+
+#################################################
+# Calculate doubling time.
+# Calcualate mu today, mu one week ago, and then rate, and then convert to doubling time
+# rate = log(mu[t])-log(mu[t-1])
+# double time = log(2)  / rate
+
+lambda_out %>% 
+  filter( 
+    (date == as.Date(DATE_0)+T-1) | (date == as.Date(DATE_0)+T-1-7) ) %>%
+  group_by(
+    geoid, State, i) %>%
+  arrange(
+    date) %>%
+  summarize(
+    gr = log(lambda_q50[2]) - log(lambda_q50[1]),
+    rate = lambda_q50[2]) %>%
+  mutate(
+    double = log(2)/gr) %>%
+  mutate(
+    double_c = cut(gr, 
+                   breaks=c(-Inf, -log(2)/1, -log(2)/4,  log(2)/4, log(2)/1,Inf),
+                   labels=c('Halve in < 1 week', 'Halve in 1-4 weeks', 'No Change', 'Double in 1-4 weeks', 'Double in <1 week')),
+    rate_c = cut(rate*10000,
+                 breaks=c(0, .01, .1, 1,Inf),
+                 labels = c('Less than 1 in 1,000,000','1 in 1,000,000', '1 in 100,000','Greater than 1 in 10,000'))
+  ) %>%
+  left_join(geodf) %>%
+  st_as_sf() -> map_temp
+
+##########################################################################
+# Cross-tab the doubling time by the rate.
+tab <- table(map_temp$double_c, map_temp$rate_c)
+tab
+
+#######################################################
+# Create the doubling time map.
+ggplot(
+  data = map_temp,
+  aes = aes( 
+    fill = double_c)) + 
+  geom_sf(aes(fill=double_c), color=NA) +
+  scale_fill_brewer('doubling time',
+                    direction = -1,
+                    palette = 'RdYlBu') + 
+  geom_sf(data=state, color='black', fill=NA) +
+  theme( 
+    axis.text = ggplot2::element_blank(),
+    axis.ticks = ggplot2::element_blank(),
+    axis.title = ggplot2::element_blank(),
+    panel.grid = ggplot2::element_blank(),
+    axis.line = ggplot2::element_blank()) + 
+  labs(title='Number of weeks for new cases to double/halve (red/blue)',
+       subtitle = 'Rate calculated Apr 8 - Apr 15')
+  
+#######################################################
+# Save the data.
 save(out_df, file=file.path(RESULTS_DIR, paste0('results_', DATE,'.RData')))
