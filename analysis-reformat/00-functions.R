@@ -270,6 +270,7 @@ fread_stan <- function(file, col_select, ...) {
 }
 
 diagnose_var <- function(df){
+  require(rstan)
   # take a data.frame with a single variable, but all .chains and .iterations
   # Calculate Effective Sample Size, Rhat,
   # and Rhats dropping one chain at a time
