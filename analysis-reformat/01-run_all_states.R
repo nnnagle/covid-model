@@ -54,8 +54,6 @@ state_list <- nyt_data %>%
   arrange(desc(n)) %>%
   pull(state_fips)
 
-#state_list <- '53'
-#state_list <- state_list[1:7]
 
 
 #####################################################
@@ -178,8 +176,7 @@ for(i in 1:length(state_list)){
   # i.e. a ~ N(0,DD')
   # 2. Reparameterize so that Ba = Za', a' ~ N(0,I)
   T <- max(coviddf$t) + TPRED
-  spl_K <- T-2 # max: T-2 to use full rank | min: 1 to use parabolic
-  spl_K <- 16
+  #spl_K <- T-2 # max: T-2 to use full rank | min: 1 to use parabolic
 
   ######################################
   # Create day of week design matrix
@@ -195,9 +192,10 @@ for(i in 1:length(state_list)){
   ####################################
   # RE method 1
   D <- diff(diag(T+TPRED),differences = 2)
+  D[T-2,] <- D[T-2,]*100 # really penalize curves at the end of time
   D.svd <- svd(t(D))
   Z <- D.svd$u %*% diag(1/D.svd$d)
-  Z <- Z[,(ncol(Z)+1-spl_K):ncol(Z)]
+  Z <- Z[,(ncol(Z)+1-SPL_K):ncol(Z)]
   ####################################
   ## RW method 2
   ## intercept + tp*beta, beta ~ N(0,sigma)
@@ -230,7 +228,7 @@ for(i in 1:length(state_list)){
                     K      = 1,
                     X      = Xdf %>% select(lpop_s),
                     X_dow  = X_dow,
-                    spl_K  = spl_K,
+                    spl_K  = SPL_K,
                     Z_spl  = Z,
                     J1     = if(all(is.finite(Xdf$msa_j)))
                       max(Xdf$msa_j) else 0,
