@@ -29,6 +29,8 @@ source('analysis-reformat/00-functions.R')
 
 library(tidyverse)
 library(future)
+library(furrr)
+library(covidmodeldata)
 
 cl <- makeClusterPSOCK(NNODES)
 plan(cluster, workers = cl)
@@ -52,8 +54,14 @@ coviddf <- nyt_data %>%
   filter(date >= as.Date(DATE_0)) %>%
   mutate(t = as.numeric(date) - as.numeric(as.Date(DATE_0))+1)
 
+
 # get a tibble of unique dates, and cartesian product with geodf
-date_df <- coviddf %>% dplyr::select(date, t) %>% unique() %>% arrange(t)
+T <- max(coviddf$t)
+date_df <- tibble(t=seq(1,T+TPRED)) %>%
+  mutate(
+    date = as.Date(DATE_0)+t-1)
+
+#date_df <- coviddf %>% dplyr::select(date, t) %>% unique() %>% arrange(t)
 
 ########################################################
 # Set up a county/date sf object
@@ -149,6 +157,7 @@ lambda_out <- summary_lambda %>%
     date)
 
 # Merge into sf object
+out_df <- crossing(geodf, date_df) %>% sf::st_as_sf() %>%  left_join(coviddf)
 out_df <- out_df %>% 
   left_join(lambda_out, by=c('geoid', 'date'))
 
@@ -164,7 +173,7 @@ out_df <-
 # Create a panel plot of all counties for a state.
 ggplot(
   data= out_df %>% 
-    filter(state_fips=='06'), 
+    filter(state_fips=='54'), 
   aes( 
     x=date, 
     y=fudge*lambda_q50*10000,
@@ -179,7 +188,7 @@ ggplot(
     scales='free_y') +
   scale_y_continuous('New Cases per 10,000 people per day') +
   scale_x_date(
-    limits = c(min(coviddf$date+7), max(coviddf$date))) + 
+    limits = c(min(date_df$date+7), max(coviddf$date))) + 
   theme(
     axis.text.x = element_text(angle=45, hjust = 1, vjust=1)
   )
