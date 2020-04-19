@@ -89,11 +89,16 @@ generated quantities{
    for(t in 1:T){
      real log_mu;
      real est;
+     int sim;
      log_mu = log_pop[i]+log_lambda[i,t] + 
               X[i]*theta +
               X_dow[t]*theta_dow;
      est = min([log_mu, 15.]);
-     Y_sim[i,t] = neg_binomial_2_log_rng(est, phi);
+     sim = neg_binomial_2_log_rng(est, phi);
+     if (is_nan(sim)) 
+       Y_sim[i,t] = -1;
+     else 
+       Y_sim[i,t] = sim;
    }
  }
 }
