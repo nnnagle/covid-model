@@ -21,7 +21,7 @@ CLEAN_DIR = TRUE # SET TO TRUE TO DELETE the DATA_DIR
 
 TPRED = 7 # Number of days forward to predict (from last data day, not from Sys.Date())
 #SPL_K = 7 # Number of spline basis functions to use. basis has approx K shifts in sign
-SPL_K = floor((as.Date(DATE)+TPRED-as.Date(DATE_0))/7)-1 # My logic here is we want fewer than one peak per week.
+SPL_K = floor(as.numeric(as.Date(DATE)+TPRED-as.Date(DATE_0))/7)-1 # My logic here is we want fewer than one peak per week.
 
 # DATE = '2020-04-04' # Date of run
 # NYT_FILE <- '../data/2020-04-03-covid19-nyt.csv'
