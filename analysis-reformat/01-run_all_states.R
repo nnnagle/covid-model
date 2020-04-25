@@ -32,7 +32,7 @@ if (is.null(ACS_FILE)) {
 # COMPILE MODEL
 # Negative Binomial with Gaussian Random Walk on slope
 
-stan_mod <- stan_model(file='analysis-reformat/nb_spline.stan', model_name='nb_spline')
+stan_mod <- stan_model(file='analysis-reformat/nb1_spline.stan', model_name='nb1_spline')
 
 
 ######################################################
@@ -54,6 +54,7 @@ state_list <- nyt_data %>%
   arrange(desc(n)) %>%
   pull(state_fips)
 
+#state_list <- state_list[c(20:25)]
 
 
 #####################################################
@@ -218,6 +219,8 @@ for(i in 1:length(state_list)){
   ## don't know what the parameters are.
   ## Trial and error suggests .02 is a good prior for the variance.
   
+
+  
   stan_data <- list(Pop    = Xdf %>% pull(pop),
                     Y      = coviddf %>% pull(new_cases_mdl), # using modeled cases
                     Y_i    = coviddf %>% pull(i),
@@ -260,6 +263,17 @@ for(i in 1:length(state_list)){
 cl <- makeCluster(NNODES)
 registerDoParallel(cl)
 
+##############################################
+# Initialize function
+init_fun <- function(chain_id) list( a = runif(1,-13,-9),
+                                     b = runif(1,0,.4),
+                                     tau_a0 = runif(1,0,2),
+                                     tau_a1 = runif(1,0,2),
+                                     raw_tau_b0 = runif(1,0,2), 
+                                     raw_tau_splb = runif(1,0,2),
+                                     phi = runif(1,.1,.9))
+
+
 r <- foreach(i = 1:length(stan_fit_list),
              .verbose=TRUE, .packages='rstan') %dopar% {
   stan_fit <- try(sampling(object =          stan_mod,
@@ -272,9 +286,9 @@ r <- foreach(i = 1:length(stan_fit_list),
                            sample_file =     stan_fit_list[[i]]$sample_file,
                            diagnostic_file = stan_fit_list[[i]]$diagnostic_file,
                            append_samples =  FALSE,
-                           #init = 0,
+                           init =            init_fun,
                            control =         list(adapt_delta = 0.99, max_treedepth=10)) ) 
-  return(1)
+  #return(1)
 }
 stopCluster(cl)
 

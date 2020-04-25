@@ -28,6 +28,7 @@ source('analysis-reformat/00-functions.R')
 # Uses zoom_stan()
 
 library(tidyverse)
+library(sf)
 library(future)
 library(furrr)
 library(covidmodeldata)
@@ -90,8 +91,8 @@ geo_crosswalk_df <- summary_df %>%
   select(
     State, 
     crosswalk) %>%
-  unnest(
-    crosswalk)
+  tidyr::unnest(
+    cols=crosswalk)
 
 
 
@@ -173,7 +174,7 @@ out_df <-
 # Create a panel plot of all counties for a state.
 ggplot(
   data= out_df %>% 
-    filter(state_fips=='54'), 
+    filter(state_fips=='06'), 
   aes( 
     x=date, 
     y=fudge*lambda_q50*10000,
@@ -186,9 +187,9 @@ ggplot(
   facet_wrap(
     ~county_name,
     scales='free_y') +
-  scale_y_continuous('New Cases per 10,000 people per day') +
+  scale_y_log10('New Cases per 10,000 people per day') +
   scale_x_date(
-    limits = c(min(date_df$date+7), max(coviddf$date))) + 
+    limits = c(min(date_df$date+7), max(date_df$date))) + 
   theme(
     axis.text.x = element_text(angle=45, hjust = 1, vjust=1)
   )

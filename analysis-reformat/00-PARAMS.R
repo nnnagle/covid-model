@@ -1,4 +1,4 @@
-DATE <- '2020-04-18' # Date of run
+DATE <- '2020-04-23' # Date of run
 NYT_FILE <- NULL
 ACS_FILE <- NULL
 DATE_0 <- '2020-03-01' # First date to use
