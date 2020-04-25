@@ -39,7 +39,8 @@ diagnostic_df <-
     diag = future_map(.x=files, 
                       ~read_and_diagnose(.x, 
                                          warmup=WARMUP, 
-                                         par_select=c(starts_with('tau'),
+                                         par_select=c(starts_with('phi'),
+                                                      starts_with('tau'),
                                                       starts_with('log_lambda')))))
 
 ###################################################################
@@ -50,6 +51,11 @@ diagnostic_df <-
 #              remove k sample from
 #           else break
 
+diagnostic_df %>%
+  select(-files) %>%
+  unnest(cols=diag) %>%
+  summary()
+  
 # REPLACE THIS NEXT LINE!!!!!!!!!!!!
 diagnostic_df <- mutate(diagnostic_df, good_files=files)
 
