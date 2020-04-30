@@ -66,9 +66,6 @@ stan_fit_list <- vector(mode='list', length=length(state_list)*NCHAINS)
 slot = 1 # A counter
 for(i in 1:length(state_list)){
 
-  #STATE_FIPS = '53' # 53 = Washington
-  #STATE_FIPS = '47' 
-  # STATE_FIPS='23' Minnesota i=23
   STATE_FIPS = state_list[i]
   # Create sample directory
   STATE_SAMPLES_DIR <- file.path(SAMPLES_ROOT, DATE, STATE_FIPS)
@@ -84,7 +81,7 @@ for(i in 1:length(state_list)){
       date >= as.Date(DATE_0)
       )
   
-  # Add DC(11) to Maryland (24)
+  # Add DC(11) to Maryland (24) by changing its state_fips
   if(STATE_FIPS == '24') {
     
     coviddf.11 <-  nyt_data %>% 
@@ -116,6 +113,7 @@ for(i in 1:length(state_list)){
       geodf %>% st_drop_geometry, by = 'geoid') %>%
     arrange(i)
   
+  # Create the county-level regression data matrix
   Xdf <- covid_cty %>%
     select(
       geoid, 
@@ -161,14 +159,50 @@ for(i in 1:length(state_list)){
     Xdf$msa_j = NA
   }
 
-  # Give the i and t indexes to coviddata
+  # # Give the i and t indexes to coviddata
+  # coviddf <- coviddf %>%
+  #   left_join(
+  #     Xdf %>% select(geoid, i), by='geoid'
+  #     ) %>%
+  #   mutate(
+  #     t = as.numeric(date) - as.numeric(as.Date(DATE_0))+1
+  #     ) %>%
+  #   select(geoid, state_fips, state_name, county_name, date, t, everything())
+  
+  # I want to add zeros to the data.
+  # The data begin with the first observation for each county.
+  # This introduces a positive bias to the beginning.
+  date_df <- tibble(date = seq.Date(from = as.Date(DATE_0),
+                                    to = max(coviddf$date),
+                                    by = 1))
+  coviddf_template <- crossing(date_df, 
+                              coviddf %>% 
+                                select(geoid,
+                                       state_fips, 
+                                       state_name,
+                                       county_name) %>% 
+                                unique)
+  coviddf <- coviddf_template %>%
+    left_join(coviddf) %>%
+    mutate(new_cases=ifelse(is.na(new_cases),0, new_cases),
+           new_cases_mdl = ifelse(is.na(new_cases_mdl), 0, new_cases_mdl))
+  
+  
+  # Add a time integer and county integer
   coviddf <- coviddf %>%
+    mutate(t = as.numeric(date)-as.numeric(as.Date(DATE_0))+1) %>%
     left_join(
-      Xdf %>% select(geoid, i), by='geoid'
-      ) %>%
-    mutate(
-      t = as.numeric(date) - as.numeric(as.Date(DATE_0))+1
-      )
+              Xdf %>% select(geoid, i), by='geoid'
+    ) %>%
+    select(geoid, i, state_fips, state_name, county_name, date, t, everything())
+  
+  # That's too many zeros. So only add up to 7 days before the first 1 observation:
+  coviddf <- coviddf %>%
+    group_by(geoid,state_fips, state_name, county_name) %>%
+    mutate(first_t = t[min(which(new_cases_mdl>0))]) %>%
+    filter( t>= first_t-7) %>%
+    select(-first_t)
+  
   
   ######################################
   # Create spline basis for the time series
@@ -192,15 +226,18 @@ for(i in 1:length(state_list)){
     
   ####################################
   # RE method 1
+  # Create the intrinsic RW penalty on coef of a Identity matrix spline
+  # This will require specifying slope separately
   D <- diff(diag(T+TPRED),differences = 2)
-  D[T-2,] <- D[T-2,]*100 # really penalize curves at the end of time
+  #D[T-2,] <- D[T-2,]*100 # really penalize curves at the end of time
   D.svd <- svd(t(D))
   Z <- D.svd$u %*% diag(1/D.svd$d)
   Z <- Z[,(ncol(Z)+1-SPL_K):ncol(Z)]
   ####################################
   ## RW method 2
   ## intercept + tp*beta, beta ~ N(0,sigma)
-  ## truncated polynomial basis:
+  ## truncated polynomial basis
+  ## This requires that there by NO separate slope
   #tp <- spam::toeplitz.spam(y=seq(1:(T+TPRED))-1, x=rep(0,(T+TPRED)))
   #tp <- tp[,1:(T+TPRED-1)]
   ## qr decomposition
@@ -222,23 +259,24 @@ for(i in 1:length(state_list)){
 
   
   stan_data <- list(Pop    = Xdf %>% pull(pop),
-                    Y      = coviddf %>% pull(new_cases_mdl), # using modeled cases
-                    Y_i    = coviddf %>% pull(i),
-                    Y_t    = coviddf %>% pull(t),
+                    Y      = coviddf %>% filter(new_cases_mdl>0) %>% pull(new_cases_mdl), # using modeled cases
+                    Y_i    = coviddf %>% filter(new_cases_mdl>0) %>% pull(i),
+                    Y_t    = coviddf %>% filter(new_cases_mdl>0) %>% pull(t),
+                    Y0_i   = coviddf %>% filter(new_cases_mdl==0) %>% pull(i),
+                    Y0_t   = coviddf %>% filter(new_cases_mdl==0) %>% pull(t),
                     I      = max(coviddf$i),
                     T      = T+TPRED,
-                    N      = nrow(coviddf),
+                    N      = nrow(coviddf %>% filter(new_cases_mdl>0) ),
+                    N0     = nrow(coviddf %>% filter(new_cases_mdl==0) ),
                     K      = 1,
                     X      = Xdf %>% select(lpop_s),
                     X_dow  = X_dow,
                     spl_K  = SPL_K,
                     Z_spl  = Z,
-                    J1     = if(all(is.finite(Xdf$msa_j)))
-                      max(Xdf$msa_j) else 0,
-                    group1 = if(all(is.finite(Xdf$msa_j)))  
-                      Xdf %>% pull(msa_j) else 
-                        rep(0,max(coviddf$i)),
-                    taub_scale = .05
+                    J1     = if(all(is.finite(Xdf$msa_j))) max(Xdf$msa_j) else 0,
+                    group1 = if(all(is.finite(Xdf$msa_j))) Xdf %>% pull(msa_j) else  rep(0,max(coviddf$i)),
+                    taub_scale = .05,
+                    sample_flag = TRUE
   )
   
   for(j in 1:NCHAINS){
@@ -292,4 +330,13 @@ r <- foreach(i = 1:length(stan_fit_list),
 }
 stopCluster(cl)
 
+stan_opt <- try(optimizing(object =          stan_mod,
+                         data =            stan_fit_list[[i]]$stan_data,
+                         init =            init_fun(),
+                         init_alpha =      1e-8,
+                         tol_rel_grad =    1e4,
+                         algorithm =       "BFGS",
+                         verbose=          TRUE)) 
+
+stan_pars <- tibble(value = stan_opt$par, variable = names(stan_opt$par))
 

@@ -1,4 +1,4 @@
-DATE <- '2020-04-23' # Date of run
+DATE <- '2020-04-29' # Date of run
 NYT_FILE <- NULL
 ACS_FILE <- NULL
 DATE_0 <- '2020-03-01' # First date to use
@@ -6,8 +6,8 @@ DATE_0 <- '2020-03-01' # First date to use
 SAMPLES_ROOT <- ifelse(Sys.info()[["nodename"]] == 'quetelet',
                        '/data/covid/tmp',
                        'tmp') # All samples will be stored under {SAMPLES_ROOT}/{DATE}/{STATE}
-NITER = 6000
-NTHIN = 3
+NITER = 3000
+NTHIN = 2
 NCHAINS = 4
 WARMUP = (NITER/NTHIN)/2
 WARMUP = 500 # WARMUP is number of retained (after thinning) samples
