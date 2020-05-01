@@ -78,13 +78,21 @@ transformed parameters{
   real tau_splb;
   real tau_b0;
   real inv_phi;
-  matrix[I,T] log_lambda; // log cases per person. Spline only. No day or county effects
+  
   //real phi;               // Neg Bin scale
   inv_phi = 1/phi;
   //phi = 1/a_gamma;        // var NB(2) = mu + mu^2/phi
                           // var NB(1) = mu + mu/phi
   tau_splb = taub_scale * raw_tau_splb;
   tau_b0 = .04 * raw_tau_b0;
+  
+}
+
+
+model {
+  //real log_mu[N];
+  //real log_mu0[N0];
+  matrix[I,T] log_lambda; // log cases per person. Spline only. No day or county effects
   for(i in 1:I){
     log_lambda[i] =  a + tau_a0*a0[i] + 
                     (b + tau_b0*b0[i]) * t_vec;
@@ -93,12 +101,6 @@ transformed parameters{
       log_lambda[i] += tau_a1*a1[group1[i]];
       }
   }
-}
-
-
-model {
-  //real log_mu[N];
-  //real log_mu0[N0];
   a ~ normal(-11,10);  // exp(-11) ~ .1 cases in 10,000 persons
   b ~ normal(.2, .1); // 3 orders of magnitude over 30 days = log(1000)/30 ~ .23
   
@@ -123,24 +125,21 @@ model {
   /// Likelihood
   for(n in 1:N) {
     real log_mu;
-    //real mu;
     log_mu = log_pop[Y_i[n]] + log_lambda[Y_i[n],Y_t[n]] +
                               X[Y_i[n]] * theta + 
                               X_dow[Y_t[n]] * theta_dow;
-    //mu = exp(log_mu);
     target += neg_binomial_2_log_lpmf(Y[n] | log_mu, phi*exp(log_mu));
     //target += lchoose(Y[n] + phi*mu - 1, Y[n]);
     //target += -Y[n]*log1p(phi) - phi*mu*(log1p(phi) - log(phi));
   }
-   for(n in 1:N0) {
-     real log_mu0;
- //    real mu0;
-     log_mu0 = log_pop[Y0_i[n]] + log_lambda[Y0_i[n],Y0_t[n]] +
-                               X[Y0_i[n]] * theta + 
-                               X_dow[Y0_t[n]] * theta_dow;
- //    mu0 = exp(log_mu0);
-     target += -phi*exp(log_mu0)*log1p(1/phi);
-   }
+  for(n in 1:N0) {
+    real log_mu0;
+    log_mu0 = log_pop[Y0_i[n]] + log_lambda[Y0_i[n],Y0_t[n]] +
+              X[Y0_i[n]] * theta + 
+              X_dow[Y0_t[n]] * theta_dow;
+    //target += neg_binomial_2_log_lpmf(0 | log_mu0, phi*exp(log_mu0));
+    target += -phi*exp(log_mu0)*log1p(1/phi);
+  }
   //target += nb1_zero_lpmf(Y | exp(log_mu), sum(exp(log_mu0)), phi);
 }
 
@@ -148,15 +147,25 @@ model {
   int Y_sim[I,T];
   int Ypred[N];
   vector[I] log_recenter;
+  matrix[I,T] log_lambda; // log cases per person. Spline only. No day or county effects
+  
   for(i in 1:I){
     log_recenter[i] = X[i]*theta + mean(X_dow);
-    for(t in 1:T){
+    log_lambda[i] =  log_recenter[i] + a + tau_a0*a0[i] + 
+                    (b + tau_b0*b0[i]) * t_vec;
+    log_lambda[i,] += tau_splb * to_row_vector(Z_spl * to_vector(spl_b[i]));
+    if(J1>0){ // Add metro effect if metros are present
+      log_lambda[i] += tau_a1*a1[group1[i]];
+      }
+  }
+  for(i in 1:I){
+      for(t in 1:T){
       real log_mu;
       real est;
       real pe;
       int sim;
       if(sample_flag){
-        log_mu = log_pop[i]+log_lambda[i,t] + 
+        log_mu = log_pop[i]+log_lambda[i,t] - log_recenter[i] + 
                  X[i]*theta +
                  X_dow[t]*theta_dow;
         est = min([log_mu, 10.]);
