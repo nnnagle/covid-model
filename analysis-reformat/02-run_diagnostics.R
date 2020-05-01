@@ -55,6 +55,11 @@ diagnostic_df %>%
   select(-files) %>%
   unnest(cols=diag) %>%
   summary()
+
+diagnostic_df %>%
+  select(-files) %>%
+  unnest(cols=diag) %>% 
+  filter(Rhat > 1.02)
   
 # REPLACE THIS NEXT LINE!!!!!!!!!!!!
 diagnostic_df <- mutate(diagnostic_df, good_files=files)

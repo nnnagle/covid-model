@@ -99,6 +99,10 @@ geo_crosswalk_df <- summary_df %>%
 ######################################################################
 #options(error=browser)
 #options(error=NULL)
+
+# Extract the "fudge" values.  These should correct for the X variables so that lambda is the intercept again.
+
+
 #  Collect summary stats for lambda: cases per person
 summary_lambda <- 
   summary_df %>%
@@ -135,16 +139,70 @@ summary_lambda <-
       return(summary)
     }
     )
-  )
-
-##############################################
-# Create an tibble with one row per county/date
-lambda_out <- summary_lambda %>%
+  ) %>%
   select(
     State, 
     lambda_summary) %>%
   unnest(
     lambda_summary)   %>%
+  select(-.variable) 
+
+
+
+#  Collect summary stats for lambda: cases per person
+summary_Ysim <- 
+  summary_df %>%
+  mutate(
+    Ysim_summary = future_map(good_files, function(x){
+      if(length(x)==0){
+        return(tibble(Ysim_mean = NA,
+                      Ysim_q05 = NA,
+                      Ysim_q15 = NA,
+                      Ysim_q25 = NA,
+                      Ysim_q50 = NA,
+                      Ysim_q75 = NA,
+                      Ysim_q85 = NA,
+                      Ysim_q95 = NA))
+      }
+      samples <- read_stan_draws(x, par_select=c(starts_with("Y_sim")), warmup = WARMUP)
+      summary <- samples %>% 
+        group_by(.variable) %>%
+        summarize(Ysim_mean = mean(exp(.value)),
+                  Ysim_q05 = as.integer(quantile(.value, .05)),
+                  Ysim_q15 = as.integer(quantile(.value, .15)),
+                  Ysim_q25 = as.integer(quantile(.value, .25)),
+                  Ysim_q50 = as.integer(quantile(.value, .5)),
+                  Ysim_q75 = as.integer(quantile(.value, .75)),
+                  Ysim_q85 = as.integer(quantile(.value, .85)),
+                  Ysim_q95 = as.integer(quantile(.value, .95))) 
+      summary <- summary %>%
+        separate(col = .variable, into=c('.variable','i','t'), sep = '\\.') %>%
+        mutate(
+          i = as.integer(i), 
+          t=as.integer(t)) %>%
+        mutate(
+          .variable = 'Ysim')
+      return(summary)
+    }
+    )
+  ) %>%
+  select(
+    State, 
+    Ysim_summary) %>%
+  unnest(
+    Ysim_summary) %>%
+  select(-.variable)
+
+
+
+
+
+##############################################
+# Create a tibble with one row per county/date
+data_out <- 
+  summary_lambda %>%
+  left_join(
+    summary_Ysim , by=c('State','i','t') ) %>%
   left_join(
     geo_crosswalk_df, by=c('State','i')) %>%
   mutate(
@@ -157,110 +215,118 @@ lambda_out <- summary_lambda %>%
     geoid, 
     date)
 
-# Merge into sf object
-out_df <- crossing(geodf, date_df) %>% sf::st_as_sf() %>%  left_join(coviddf)
-out_df <- out_df %>% 
-  left_join(lambda_out, by=c('geoid', 'date'))
+## Merge into sf object
+#out_df <- crossing(geodf, date_df) %>% sf::st_as_sf() %>%  left_join(coviddf)
+#out_df <- out_df %>% 
+#  left_join(lambda_out, by=c('geoid', 'date'))
 
 # normalize lambda
-out_df <-
-  out_df %>%
+# This should be done before summaries, but that requires a major rewrite.
+# Add names to the geodf
+
+data_out <-
+  data_out %>%
+  left_join(coviddf %>% select(-t, -state_fips, -state_name, -county_name),
+            by=c('geoid','date')) %>%
+  left_join(geodf %>% st_drop_geometry() %>%
+              select(geoid, state_name, county_name, acs_total_pop_e),
+            by='geoid') %>%
   group_by(geoid) %>%
-  mutate(fudge = sum(new_cases_mdl,na.rm=TRUE)/(sum(lambda_q50,na.rm=TRUE)*acs_total_pop_e)) %>%
+  mutate(fudge = sum(new_cases_mdl,na.rm=TRUE)/(sum(lambda_q50[new_cases_mdl>0],na.rm=TRUE)*acs_total_pop_e)) %>%
   ungroup()
 
 
-########################################################
-# Create a panel plot of all counties for a state.
-ggplot(
-  data= out_df %>% 
-    filter(state_fips=='06'), 
-  aes( 
-    x=date, 
-    y=fudge*lambda_q50*10000,
-    ymax = fudge*lambda_q85*10000,
-    ymin = fudge*lambda_q15*10000)) + 
-  geom_ribbon( 
-    fill='grey50') +
-  geom_line() + 
-  geom_point(aes(y=(new_cases_mdl)/acs_total_pop_e*10000),alpha=.1,color='red') +
-  facet_wrap(
-    ~county_name,
-    scales='free_y') +
-  scale_y_log10('New Cases per 10,000 people per day') +
-  scale_x_date(
-    limits = c(min(date_df$date+7), max(date_df$date))) + 
-  theme(
-    axis.text.x = element_text(angle=45, hjust = 1, vjust=1)
-  )
-
-
-
-##############################################
-# Create a state_boundary layer for reference
-state <- geodf %>%
-  group_by(state_fips, state_name) %>%
-  summarize()
-
-
-
-
-
-
-#################################################
-# Calculate doubling time.
-# Calcualate mu today, mu one week ago, and then rate, and then convert to doubling time
-# rate = log(mu[t])-log(mu[t-1])
-# double time = log(2)  / rate
-
-lambda_out %>% 
-  filter( 
-    (date == as.Date(DATE_0)+T-1) | (date == as.Date(DATE_0)+T-1-7) ) %>%
-  group_by(
-    geoid, State, i) %>%
-  arrange(
-    date) %>%
-  summarize(
-    gr = log(lambda_q50[2]) - log(lambda_q50[1]),
-    rate = lambda_q50[2]) %>%
-  mutate(
-    double = log(2)/gr) %>%
-  mutate(
-    double_c = cut(gr, 
-                   breaks=c(-Inf, -log(2)/1, -log(2)/4,  log(2)/4, log(2)/1,Inf),
-                   labels=c('Halve in < 1 week', 'Halve in 1-4 weeks', 'No Change', 'Double in 1-4 weeks', 'Double in <1 week')),
-    rate_c = cut(rate*10000,
-                 breaks=c(0, .01, .1, 1,Inf),
-                 labels = c('Less than 1 in 1,000,000','1 in 1,000,000', '1 in 100,000','Greater than 1 in 10,000'))
-  ) %>%
-  left_join(geodf) %>%
-  st_as_sf() -> map_temp
-
-##########################################################################
-# Cross-tab the doubling time by the rate.
-tab <- table(map_temp$double_c, map_temp$rate_c)
-tab
-
-#######################################################
-# Create the doubling time map.
-ggplot(
-  data = map_temp,
-  aes = aes( 
-    fill = double_c)) + 
-  geom_sf(aes(fill=double_c), color=NA) +
-  scale_fill_brewer('doubling time',
-                    direction = -1,
-                    palette = 'RdYlBu') + 
-  geom_sf(data=state, color='black', fill=NA) +
-  theme( 
-    axis.text = ggplot2::element_blank(),
-    axis.ticks = ggplot2::element_blank(),
-    axis.title = ggplot2::element_blank(),
-    panel.grid = ggplot2::element_blank(),
-    axis.line = ggplot2::element_blank()) + 
-  labs(title='Number of weeks for new cases to double/halve (red/blue)',
-       subtitle = 'Rate calculated Apr 8 - Apr 15')
-  
-#######################################################
+# ########################################################
+# # Create a panel plot of all counties for a state.
+# ggplot(
+#   data= out_df %>% 
+#     filter(state_fips=='06'), 
+#   aes( 
+#     x=date, 
+#     y=fudge*lambda_q50*10000,
+#     ymax = fudge*lambda_q85*10000,
+#     ymin = fudge*lambda_q15*10000)) + 
+#   geom_ribbon( 
+#     fill='grey50') +
+#   geom_line() + 
+#   geom_point(aes(y=(new_cases_mdl)/acs_total_pop_e*10000),alpha=.1,color='red') +
+#   facet_wrap(
+#     ~county_name,
+#     scales='free_y') +
+#   scale_y_log10('New Cases per 10,000 people per day') +
+#   scale_x_date(
+#     limits = c(min(date_df$date+7), max(date_df$date))) + 
+#   theme(
+#     axis.text.x = element_text(angle=45, hjust = 1, vjust=1)
+#   )
+# 
+# 
+# 
+# ##############################################
+# # Create a state_boundary layer for reference
+# state <- geodf %>%
+#   group_by(state_fips, state_name) %>%
+#   summarize()
+# 
+# 
+# 
+# 
+# 
+# 
+# #################################################
+# # Calculate doubling time.
+# # Calcualate mu today, mu one week ago, and then rate, and then convert to doubling time
+# # rate = log(mu[t])-log(mu[t-1])
+# # double time = log(2)  / rate
+# 
+# lambda_out %>% 
+#   filter( 
+#     (date == as.Date(DATE_0)+T-1) | (date == as.Date(DATE_0)+T-1-7) ) %>%
+#   group_by(
+#     geoid, State, i) %>%
+#   arrange(
+#     date) %>%
+#   summarize(
+#     gr = log(lambda_q50[2]) - log(lambda_q50[1]),
+#     rate = lambda_q50[2]) %>%
+#   mutate(
+#     double = log(2)/gr) %>%
+#   mutate(
+#     double_c = cut(gr, 
+#                    breaks=c(-Inf, -log(2)/1, -log(2)/4,  log(2)/4, log(2)/1,Inf),
+#                    labels=c('Halve in < 1 week', 'Halve in 1-4 weeks', 'No Change', 'Double in 1-4 weeks', 'Double in <1 week')),
+#     rate_c = cut(rate*10000,
+#                  breaks=c(0, .01, .1, 1,Inf),
+#                  labels = c('Less than 1 in 1,000,000','1 in 1,000,000', '1 in 100,000','Greater than 1 in 10,000'))
+#   ) %>%
+#   left_join(geodf) %>%
+#   st_as_sf() -> map_temp
+# 
+# ##########################################################################
+# # Cross-tab the doubling time by the rate.
+# tab <- table(map_temp$double_c, map_temp$rate_c)
+# tab
+# 
+# #######################################################
+# # Create the doubling time map.
+# ggplot(
+#   data = map_temp,
+#   aes = aes( 
+#     fill = double_c)) + 
+#   geom_sf(aes(fill=double_c), color=NA) +
+#   scale_fill_brewer('doubling time',
+#                     direction = -1,
+#                     palette = 'RdYlBu') + 
+#   geom_sf(data=state, color='black', fill=NA) +
+#   theme( 
+#     axis.text = ggplot2::element_blank(),
+#     axis.ticks = ggplot2::element_blank(),
+#     axis.title = ggplot2::element_blank(),
+#     panel.grid = ggplot2::element_blank(),
+#     axis.line = ggplot2::element_blank()) + 
+#   labs(title='Number of weeks for new cases to double/halve (red/blue)',
+#        subtitle = 'Rate calculated Apr 8 - Apr 15')
+#   
+# #######################################################
 # Save the data.
-save(out_df, file=file.path(RESULTS_DIR, paste0('results_', DATE,'.RData')))
+save(data_out, file=file.path(RESULTS_DIR, paste0('results_', DATE,'.RData')))
