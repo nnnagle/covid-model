@@ -2,26 +2,30 @@ functions{
   real nb1_log_lpmf(int Y, real log_mu, real phi){
     real logp;
     real scale = phi*exp(log_mu);
-    logp = lchoose(Y + scale - 1, Y);
+    //logp = lchoose(Y + scale - 1, Y);
+    logp = lgamma(Y + scale) - lgamma(scale);
     logp += -Y*log1p(phi) - scale*log1p(1/phi);
     return(logp);
   }
   real nb1_zero_lpmf(int[] y, real[] mu, real sum_mu0, real k){
     int N = size(y);
-    vector[N] phi;
+    //vector[N] phi;
     real lp = 0;
-    real sum_y = sum(y);
-    real sum_phi ;
-    real sum_phi0 = sum_mu0*k;
-    for(i in 1:N) phi[i] = mu[i]*k;
-    sum_phi = sum(phi);
+    //real sum_y = sum(y);
+    ///real sum_phi ;
+    //real sum_phi0 = sum_mu0*k;
+    //for(i in 1:N) phi[i] = mu[i]*k;
+    //sum_phi = sum(phi);
     // Term owing to y>1
     for( i in 1:N) {
-      lp += lchoose(y[i] + phi[i] -1, y[i]);
+      real scale = mu[i]*k;
+      lp += lgamma(y[i] + scale) - lgamma(scale) - lgamma(y[i]+1);
+      //lp += lchoose(y[i] + phi[i] -1, y[i]);
+      lp += -y[i]*log1p(k) - scale*(log1p(k) - log(k));
     }
-    lp += -sum_y*log1p(k) - sum_phi*(log1p(k) - log(k));
+    //lp += -sum_y*log1p(k) - sum_phi*(log1p(k) - log(k));
     // Term owing to y=0
-    lp += -sum_phi0*log1p(1/k);
+    lp += - k* sum_mu0*log1p(1/k);
     return(lp);
   }
 }
@@ -90,8 +94,8 @@ transformed parameters{
 
 
 model {
-  //real log_mu[N];
-  //real log_mu0[N0];
+  real log_mu[N];
+  real log_mu0[N0];
   matrix[I,T] log_lambda; // log cases per person. Spline only. No day or county effects
   for(i in 1:I){
     log_lambda[i] =  a + tau_a0*a0[i] + 
@@ -124,23 +128,21 @@ model {
   
   /// Likelihood
   for(n in 1:N) {
-    real log_mu;
-    log_mu = log_pop[Y_i[n]] + log_lambda[Y_i[n],Y_t[n]] +
+    log_mu[n] = log_pop[Y_i[n]] + log_lambda[Y_i[n],Y_t[n]] +
                               X[Y_i[n]] * theta + 
                               X_dow[Y_t[n]] * theta_dow;
-    target += neg_binomial_2_log_lpmf(Y[n] | log_mu, phi*exp(log_mu));
-    //target += lchoose(Y[n] + phi*mu - 1, Y[n]);
+    //target += neg_binomial_2_log_lpmf(Y[n] | log_mu, phi*exp(log_mu));
     //target += -Y[n]*log1p(phi) - phi*mu*(log1p(phi) - log(phi));
   }
   for(n in 1:N0) {
-    real log_mu0;
-    log_mu0 = log_pop[Y0_i[n]] + log_lambda[Y0_i[n],Y0_t[n]] +
+    ///real log_mu0;
+    log_mu0[n] = log_pop[Y0_i[n]] + log_lambda[Y0_i[n],Y0_t[n]] +
               X[Y0_i[n]] * theta + 
               X_dow[Y0_t[n]] * theta_dow;
     //target += neg_binomial_2_log_lpmf(0 | log_mu0, phi*exp(log_mu0));
-    target += -phi*exp(log_mu0)*log1p(1/phi);
+    //target += -phi*exp(log_mu0)*log1p(1/phi);
   }
-  //target += nb1_zero_lpmf(Y | exp(log_mu), sum(exp(log_mu0)), phi);
+  target += nb1_zero_lpmf(Y | exp(log_mu), sum(exp(log_mu0)), phi);
 }
 
  generated quantities{

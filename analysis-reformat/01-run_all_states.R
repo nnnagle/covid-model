@@ -233,9 +233,9 @@ Z <- Z[,(ncol(Z)+1-SPL_K):ncol(Z)]
 ## Trial and error suggests .02 is a good prior for the variance.
 
 
-
+if(!dir.exists(DATA_DIR)) dir.create(DATA_DIR, recursive=TRUE)
 save(covid_df, county_df, X_dow, Z, date_df, 
-     file=file.append(DATA_DIR, 'data_frames.Rdata'))
+     file=file.path(DATA_DIR, 'data_frames.Rdata'))
 
 
 
@@ -256,6 +256,8 @@ state_list <- nyt_data %>%
   pull(state_fips)
 
 #state_list <- state_list[c(20:25)]
+
+#state_list <- c('15','44','02','56','30')
 
 
 
@@ -323,7 +325,7 @@ for(i in 1:length(state_list)){
                     spl_K  = SPL_K,
                     Z_spl  = Z,
                     J1     = if(max(this_county_df$j)>1) max(Xdf$j) else 0,
-                    group1 = if(max(this_county_df$j)>1) Xdf %>% pull(j) else  rep(0, nrow(this_covid_df)),
+                    group1 = if(max(this_county_df$j)>1) Xdf %>% pull(j) else  rep(0, nrow(Xdf)),
                     taub_scale = .05,
                     sample_flag = TRUE
   )
@@ -388,13 +390,13 @@ r <- foreach(i = 1:length(stan_fit_list),
 }
 stopCluster(cl)
 
-stan_opt <- try(optimizing(object =          stan_mod,
-                         data =            stan_fit_list[[i]]$stan_data,
-                         init =            init_fun(),
-                         init_alpha =      1e-8,
-                         tol_rel_grad =    1e4,
-                         algorithm =       "BFGS",
-                         verbose=          TRUE)) 
+#stan_opt <- try(optimizing(object =          stan_mod,
+#                         data =            stan_fit_list[[i]]$stan_data,
+#                         init =            init_fun(),
+#                         init_alpha =      1e-8,
+#                         tol_rel_grad =    1e4,
+#                         algorithm =       "BFGS",
+#                         verbose=          TRUE)) 
 
-stan_pars <- tibble(value = stan_opt$par, variable = names(stan_opt$par))
+#stan_pars <- tibble(value = stan_opt$par, variable = names(stan_opt$par))
 
