@@ -10,12 +10,12 @@ library(covidmodeldata)
 
 source('analysis-reformat/00-PARAMS.R')
 
-if(CLEAN_DIR) unlink(DATA_DIR, recursive=TRUE)
+#if(CLEAN_DIR) unlink(DATA_DIR, recursive=TRUE)
 
 if (is.null(NYT_FILE)) {
   
   nyt_data <- get_nyt() %>%
-    format_nyt(skip_assignment = c("44")) # don't assign Rhode Island cases 
+    format_nyt(skip_assignment = c("09","44")) # don't assign Rhode Island cases 
   
 } else nyt_data <- read_csv(NYT_FILE)
 nyt_data <- mutate(nyt_data, date=as_date(date))
@@ -52,7 +52,7 @@ geo_date_template <- crossing(county_df, date_df)
 covid_df <- geo_date_template %>%
   left_join(first_day_df, by='geoid') %>%
   left_join(nyt_data, by=c('geoid', 'date') ) %>%
-  filter(date >= (first_date - 7)) %>%
+  filter(date >= (first_date - ZERO_PAD)) %>%
   mutate(new_cases_mdl = ifelse(date < first_date, 0, new_cases_mdl)) %>%
   select(geoid, date, total_cases:new_deaths_mdl)
   
@@ -95,43 +95,70 @@ date_df <- date_df %>%
 
 ##################################################
 # Create a metro code within each state:
-# First, recode metros t otry to delete one county groups
+# Our metro hierarchy will be a metro/nonmetro, then by csa within metros
+# Csa do include micropolitans, but we'll exclude those from metro
+# First, recode metros to try to delete one county groups
 metro_recode_df <-
-  county_df %>% select(geoid, mygeoid, mystate) %>%
+  county_df %>% 
+  select(geoid, mygeoid, mystate) %>%
   na.omit() %>%
   left_join(
     geodf %>% 
       st_drop_geometry()  %>%
-      select(geoid, state_fips, csa_code, csa_title),
+      select(geoid, state_fips, csa_code, csa_title, metro = metropolitan_micropolitan_statistical_area),
     by = c('geoid')
   ) %>%
-  # Replace missings with non-cbsa
   mutate(
-    csa_code = ifelse(is.na(csa_code), '999', csa_code),
-    csa_title = ifelse(is.na(csa_title), 'Non-csa', csa_title))   %>%
-  # Calculate number of counties in each 
+    metro = forcats::fct_explicit_na(metro) == 'Metropolitan Statistical Area'
+    ) %>%
+  # Change Connecticut, whch has one non-metro county (Litchfield) to metro.
+  mutate(metro = if_else(mygeoid == '09005', TRUE, metro)) %>%
+  mutate(
+    my_metro_code= as.character(forcats::fct_explicit_na(csa_code, na_level='998'))
+    )  %>%
+  mutate(
+    my_metro_title = if_else(is.na(csa_title), 'not_csa', csa_title)
+    ) %>% 
+  mutate(
+    my_metro_code = ifelse(metro, my_metro_code, '999')
+    ) %>%
+  mutate(
+    my_metro_title = if_else(metro, my_metro_title, 'not_metro')
+  ) %>%
+  # Calculate number of counties in each group
   group_by(
     mystate, 
-    csa_code, 
-    csa_title) %>%
+    my_metro_code, 
+    my_metro_title) %>%
   mutate(
     num_counties = n()) %>%
-  ungroup() %>%
-  # Recode any csas with only one county
+  ungroup()   %>%
+  # Recode any csas with only one or two counties
   mutate(
-    csa_code = ifelse(num_counties < 2, '999', csa_code),
-    csa_title = ifelse(num_counties < 2, 'Non-csa', csa_title))
+    my_metro_code = ifelse(metro & num_counties <= 2, '998', my_metro_code),
+    my_metro_title = ifelse(metro & num_counties <= 2, 'not_csa', my_metro_title),
+    ) %>%
+  # ReCalculate number of counties in each group
+  group_by(
+    mystate, 
+    my_metro_code, 
+    my_metro_title) %>%
+  mutate(
+    num_counties = n()) 
 
+
+
+# Create a dataset with one row per metro area, and a unique id 'j'
 metro_j_df <- metro_recode_df %>%
   # Summarize csas
   group_by(
     mystate, 
-    csa_title, 
-    csa_code) %>%
+    my_metro_title, 
+    my_metro_code) %>%
   summarize(
     n=n()) %>%
   # give index values
-  arrange(mystate, csa_code) %>%
+  arrange(mystate, my_metro_code) %>%
   group_by(
     mystate) %>%
   mutate(
@@ -142,13 +169,14 @@ metro_j_df <- metro_recode_df %>%
 metro_recode_df <- metro_recode_df %>%
   left_join(
     metro_j_df,
-    by = c('mystate', 'csa_code', 'csa_title')) %>%
+    by = c('mystate', 'my_metro_code', 'my_metro_title')) %>%
   select(
     geoid, 
     mygeoid, 
     mystate,
-    csa_code,
-    csa_title,
+    metro,
+    my_metro_code,
+    my_metro_title,
     j
   )
   
@@ -161,7 +189,7 @@ county_df <-
 
   
 #####################################################
-# Add population and income back to the county 
+# Add population and income metro status back to the county 
 county_df <- county_df %>%
   left_join(acs_data %>% 
               st_drop_geometry() %>%
@@ -172,7 +200,7 @@ county_df <- county_df %>%
                 pop = acs_total_pop_e, 
                 inc = acs_median_income_e,
                 age = acs_median_age_e),
-            by = 'geoid')
+            by = 'geoid') 
 
 
 # Rearrange for convenience
@@ -204,6 +232,11 @@ X_dow <- date_df %>%
 # Create the intrinsic RW penalty on coef of a Identity matrix spline
 # This will require specifying slope separately
 D <- diff(diag(max(date_df$t)),differences = 2)
+
+#D <- diff(diag(max(date_df$t)+2),differences = 2)
+#D <- diff(diag(10+2),differences = 2)
+#D <- D[,-c(1,2)]
+
 #D[T-2,] <- D[T-2,]*100 # really penalize curves at the end of time
 D.svd <- svd(t(D))
 Z <- D.svd$u %*% diag(1/D.svd$d)
@@ -327,7 +360,9 @@ for(i in 1:length(state_list)){
                     J1     = if(max(this_county_df$j)>1) max(Xdf$j) else 0,
                     group1 = if(max(this_county_df$j)>1) Xdf %>% pull(j) else  rep(0, nrow(Xdf)),
                     taub_scale = .05,
-                    sample_flag = TRUE
+                    sample_flag = TRUE,
+                    lppd_flag = FALSE,
+                    post_pred = FALSE
   )
   
   for(j in 1:NCHAINS){
@@ -382,7 +417,6 @@ r <- foreach(i = 1:length(stan_fit_list),
                            cores =           1,
                            warmup =          WARMUP*NTHIN,
                            sample_file =     stan_fit_list[[i]]$sample_file,
-                           diagnostic_file = stan_fit_list[[i]]$diagnostic_file,
                            append_samples =  FALSE,
                            init =            init_fun,
                            control =         list(adapt_delta = 0.99, max_treedepth=10)) ) 

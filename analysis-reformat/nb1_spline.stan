@@ -50,6 +50,8 @@ data {
   matrix[T,7]            X_dow;  // Day of week design matrix
   real<lower=0>          taub_scale;
   int                    sample_flag; //set to 0 if you don't want samples
+  int<lower=0, upper=1>  lppd_flag; // set to 0 if you don't want log posterior predictive
+  int<lower=0, upper=1>  post_pred; // set to 0 if you don't want posterior sim
 }
 
 transformed data{
@@ -150,6 +152,11 @@ model {
   int Ypred[N];
   vector[I] log_recenter;
   matrix[I,T] log_lambda; // log cases per person. Spline only. No day or county effects
+  vector[ lppd_flag ? N : 0 ] lppd;
+  vector[ lppd_flag ? N0 : 0 ] lppd0;
+  vector[ post_pred ? N : 0 ] Yi_sim;
+  vector[ post_pred ? N0 : 0] Yi0_sim;
+
   
   for(i in 1:I){
     log_recenter[i] = X[i]*theta + mean(X_dow);
@@ -179,19 +186,34 @@ model {
       } else Y_sim[i,t] = -1;
     }
   }
-/// The following is useful for posterior checks in shinystan
-// for(n in 1:N){
-//   real log_mu;
-//   int sim;
-//   real est;
-//   log_mu = log_pop[Y_i[n]] + log_lambda[Y_i[n],Y_t[n]] +
-//                              X[Y_i[n]] * theta + 
-//                              X_dow[Y_t[n]] * theta_dow;
-//   est = min([log_mu, 15.]);
-//   sim = neg_binomial_2_log_rng(est, phi * exp(est) );     
-//   if (is_nan(sim)) 
-//      Ypred[n] = -1;
-//   else 
-//      Ypred[n] = sim;
-// }
+//. The following is useful for posterior checks in shinystan
+  if(lppd_flag || post_pred){
+     for(n in 1:N){
+       real log_mu;
+       real est;
+       log_mu = log_pop[Y_i[n]] + 
+                log_lambda[Y_i[n],Y_t[n]] +
+                X[Y_i[n]] * theta + 
+                X_dow[Y_t[n]] * theta_dow;
+       est = min([log_mu, 10.]);
+       if(lppd_flag) lppd[n] = neg_binomial_2_log_lpmf(Y[n] | est, phi*exp(est));
+       if(post_pred){
+         int sim;
+         sim = neg_binomial_2_log_rng(est, phi*exp(est));
+         Yi_sim[n] = is_nan(sim) ? -1 : sim; 
+       } 
+     }
+     for(n in 1:N0){
+       real log_mu;
+       real est;
+       log_mu = log_pop[Y_i[n]] + 
+                log_lambda[Y_i[n],Y_t[n]] +
+                X[Y_i[n]] * theta + 
+                X_dow[Y_t[n]] * theta_dow;
+       est = min([log_mu, 10.]);
+       if(lppd_flag) lppd0[n] = neg_binomial_2_log_lpmf(0 | est, phi*exp(est));
+       if(post_pred) Yi0_sim[n] = neg_binomial_2_log_rng(est, phi*exp(est));
+     }
+  }
+
 }
