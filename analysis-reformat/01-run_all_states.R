@@ -288,7 +288,6 @@ state_list <- nyt_data %>%
 
 #state_list <- c('15','44','02','56','30')
 
-state_list <- state_list[30:34]
 
 
 
