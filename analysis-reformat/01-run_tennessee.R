@@ -9,6 +9,7 @@ library(covidmodeldata)
 ################################################################################
 
 source('analysis-reformat/00-PARAMS.R')
+NNODES <- NCHAINS
 
 if(CLEAN_DIR) unlink(DATA_DIR, recursive=TRUE)
 
@@ -288,8 +289,7 @@ state_list <- nyt_data %>%
 
 #state_list <- c('15','44','02','56','30')
 
-state_list <- state_list[30:34]
-
+state_list = '47'
 
 
 #####################################################
@@ -364,8 +364,8 @@ for(i in 1:length(state_list)){
                     taub1_scale = .5*sd_scale,
                     taub2_scale = sd_scale,
                     sample_flag = TRUE,
-                    lppd_flag = FALSE,
-                    post_pred = FALSE
+                    lppd_flag = TRUE,
+                    post_pred = TRUE
   )
   
   for(j in 1:NCHAINS){
