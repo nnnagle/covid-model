@@ -110,8 +110,8 @@ proc_county <- function(raw_data, geoid.list){
     # set j=0 if non-metro
     mutate(group1 = ifelse(metro, j, 0),
            group2 = ifelse(metro, 1, 2),
-           group1_name = ifelse(metro, 'Metropolitan', 'Non-Metropolitan'),
-           group2_name = my_metro_title)
+           group2_name = ifelse(metro, 'Metropolitan', 'Non-Metropolitan'),
+           group1_name = my_metro_title)
   
   county_df <-
     county_df %>%
