@@ -126,3 +126,54 @@ remove_prisons <- function(covid_df, county_df){
 }
 
 
+#' Load Balance Counties across N shards
+#' 
+assign_shards <- function(covid_df, county_df, n_shards = NSHARDS) {
+  
+  shard_df <- 
+    covid_df %>%
+    left_join(
+      county_df %>%
+        select(geoid,
+               mygeoid, mystate,
+               state_name, 
+               i, county_name, 
+               group1, group1_name, 
+               group2,group2_name),
+      by = "geoid"
+      ) %>%
+    group_by(
+      geoid, mygeoid, mystate, state_name, i, county_name, 
+      group1, group1_name, group2, group2_name
+      ) %>%
+    count() %>%
+    group_by(state_name) %>% 
+    mutate(shard_name = if_else(group1_name == "not_metro", county_name, group1_name)) %>%
+    ungroup()
+  
+  cut_df <-
+    shard_df %>% 
+    group_by(state_name, shard_name) %>% 
+    summarise(n = sum(n, na.rm = TRUE)) %>%
+    group_by(state_name) %>% 
+    arrange(n, .by_group = TRUE) %>% 
+    mutate(
+      shard = dense_rank(cut(cumsum(n), breaks = n_shards, labels = 1:n_shards))
+      ) %>%
+    select(-n) %>%
+    ungroup()
+  
+  out_df <- left_join(
+    shard_df, cut_df, 
+    by = c("state_name", "shard_name")
+    ) 
+  
+  # I wasn't sure if you wanted the shard id with the geo information or joined back
+  # to the covid_df. If you want it joined back to the covid_df just uncomment the
+  # line below
+  #
+  # out_df <- left_join(covid_df, select(out_df, geoid, shard), by = "geoid")
+  #
+  out_df
+}
+
