@@ -126,3 +126,109 @@ remove_prisons <- function(covid_df, county_df){
 }
 
 
+#' Load Balance Counties across N shards
+#' 
+assign_shards <- function(covid_df, county_df, n_shards = NSHARDS) {
+  
+  shard_df <- 
+    covid_df %>%
+    left_join(
+      county_df %>%
+        select(geoid,
+               mygeoid, mystate,
+               state_name, 
+               i, county_name, 
+               group1, group1_name, 
+               group2,group2_name),
+      by = "geoid"
+      ) %>%
+    group_by(
+      geoid, mygeoid, mystate, state_name, i, county_name, 
+      group1, group1_name, group2, group2_name
+      ) %>%
+    count() %>%
+    group_by(state_name) %>% 
+    mutate(shard_name = if_else(group1_name == "not_metro", county_name, group1_name)) %>%
+    ungroup()
+  
+  
+  
+  group2_df <-
+    shard_df %>% 
+    group_by(state_name, group2_name) %>% 
+    summarise(
+      n = sum(n), 
+      u = length(na.omit(unique(shard_name)))
+      ) %>% 
+    group_by(state_name) %>%
+    mutate(
+      per_n = n / sum(n),
+      shard_allocation = if_else(u == 1, 1, as.numeric(NA)),
+      shard_allocation = if_else(sum(shard_allocation, na.rm = TRUE) == 1 & is.na(shard_allocation), n_shards - 1, shard_allocation),
+      shard_allocation = if_else(is.na(shard_allocation), n_shards * per_n, shard_allocation),
+      shard_allocation = if_else(shard_allocation > u, as.numeric(u), shard_allocation),
+      shard_allocation = if_else(shard_allocation < 1, as.numeric(1), shard_allocation),
+      shard_allocation = if_else(any(shard_allocation == 1, na.rm = TRUE) & shard_allocation != 1, n_shards - 1, shard_allocation),
+      shard_allocation = round(shard_allocation)
+    ) %>%
+    ungroup() %>%
+    select(state_name, group2_name, shard_allocation)
+  
+    shard_df <- left_join(shard_df, group2_df, by = c("state_name", "group2_name"))
+  
+
+
+  cut_df <-
+    shard_df %>% 
+    group_by(state_name, shard_name, group2_name) %>% 
+    summarise(
+      n = sum(n, na.rm = TRUE),
+      shard_allocation = median(shard_allocation)
+    ) 
+  
+  cut_df_single <- 
+    cut_df %>% filter(shard_allocation == 1) %>%
+    mutate(
+      group2_shard = 1L,
+      group2_shard = paste0(group2_name, "-", group2_shard)
+    )
+  
+  cut_df_multi <- 
+    cut_df %>% 
+    filter(shard_allocation > 1) 
+  
+  if (nrow(cut_df_multi) > 0) {
+  cut_df_multi <-
+  cut_df_multi %>%
+    group_by(state_name, group2_name) %>% 
+    arrange(n, .by_group = TRUE) %>% 
+  mutate(
+     group2_shard = dense_rank(cut(cumsum(n), breaks = median(shard_allocation))),
+     group2_shard = paste0(group2_name, "-", group2_shard)
+    )
+  }
+  
+  cut_df <- 
+    bind_rows(cut_df_single, cut_df_multi) %>%
+    group_by(state_name) %>%
+    arrange(group2_shard, .by_group = TRUE) %>%
+    mutate(
+      shard = cumsum(!duplicated(group2_shard))
+    ) %>%
+  select(-n, -shard_allocation) %>%
+    ungroup()
+  
+  out_df <- left_join(
+   shard_df, cut_df, 
+   by = c("state_name","group2_name", "shard_name")
+    ) %>% select(-shard_allocation)
+  
+  # I wasn't sure if you wanted the shard id with the geo information or joined back
+  # to the covid_df. If you want it joined back to the covid_df just uncomment the
+  # line below
+  #
+  # out_df <- left_join(covid_df, select(out_df, geoid, shard), by = "geoid")
+  #
+  out_df
+}
+

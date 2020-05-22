@@ -12,6 +12,7 @@ if(TN_ONLY) SAMPLES_ROOT <- file.path(SAMPLES_ROOT, 'TN')
 NITER = 3000
 NTHIN = 2
 NCHAINS = 4
+NSHARDS = 4
 WARMUP = (NITER/NTHIN)/2
 WARMUP = 500 # WARMUP is number of retained (after thinning) samples
 NNODES = ifelse(Sys.info()[["nodename"]] == 'quetelet',

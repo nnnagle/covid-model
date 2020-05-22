@@ -42,6 +42,8 @@ county_df <- proc_county(
 
 covid_df <- remove_prisons(covid_df, county_df)
 
+shard_df <- assign_shards(covid_df, county_df, n_shards = NSHARDS)
+
 date_df <- tibble(
   date = seq.Date(from=as.Date(DATE_0),
                   t = max(covid_df$date)+TPRED,
