@@ -1,6 +1,6 @@
 #library(sf)
 library(tidyverse)
-#library(lubridate)
+library(lubridate)
 library(rstan)
 #library(tidybayes)
 library(foreach)
@@ -9,6 +9,7 @@ library(covidmodeldata)
 ################################################################################
 
 source('analysis-reformat/00-PARAMS.R')
+source('analysis-reformat/00-functions.R')
 source('analysis-reformat/00-proc_covid.R')
 source('analysis-reformat/00-proc_county.R')
 
@@ -17,30 +18,40 @@ source('analysis-reformat/00-proc_county.R')
 if (is.null(NYT_FILE)) {
   
   nyt_data <- get_nyt() %>%
-    format_nyt(skip_assignment = c("09","44")) # don't assign Rhode Island cases 
+    format_nyt(distribute_unknowns = FALSE) # Assign KC, but that's it.
+  
+#    format_nyt(skip_assignment = c("09","44")) # don't assign Rhode Island cases 
   
 } else nyt_data <- read_csv(NYT_FILE)
 nyt_data <- mutate(nyt_data, date=as_date(date))
 
-
+# Create tibble with cols
+#  geoid
+#  date
+#  total_cases
+#  Y
+#  t
 covid_df <- proc_covid(
   raw_data = nyt_data %>% select(geoid, date, total_cases=total_cases_mdl),
   DATE_0 = DATE_0,
   ZERO_PAD = ZERO_PAD
-)
+) %>%
+  left_join(nyt_data %>% select(geoid, date, new_cases))
 
 
 if (is.null(ACS_FILE)) {
   acs_data <- acs_data # from the covidmodeldata package 
 } else {acs_data <- readr::read_rds(ACS_FILE)}
 
-  
+# Create tibble with
+# geoid, mystate, i, group1, group2, pop
 county_df <- proc_county(
   raw_data = acs_data,
   geoid.list = unique(covid_df$geoid)
 )
 
-covid_df <- remove_prisons(covid_df, county_df)
+covid_df <- remove_prisons(covid_df, county_df) %>%
+  filter(!is.na(Y))
 
 date_df <- tibble(
   date = seq.Date(from=as.Date(DATE_0),
@@ -70,10 +81,22 @@ X_dow <- date_df %>%
 ####################################
 # RE method 1
 # Create the intrinsic RW penalty on coef of a Identity matrix spline
-# This will require specifying slope separately
-NTIME <- max(date_df$t)
-D <- pracma::tril(toeplitz(c(1,-2,1, rep(0, NTIME-4 ))))
-svd <- svd((D))
+
+# KEY OUTPUTS OF THIS SECTION
+#  Z, the spline
+#  krig_wt,
+#  krig_var_chol
+T <- as.integer(max(covid_df$date)-as_date(DATE_0)+1)
+
+L <- pracma::tril(toeplitz(c(1,-2,1, rep(0, T+TPRED-4 ))))
+
+# D11 <- (Dbig%*%t(Dbig))[1:(NTIME-1-TPRED),1:(NTIME-1-TPRED)]
+# D12 <- (Dbig%*%t(Dbig))[(NTIME-1-TPRED+1):(NTIME-1),1:(NTIME-1-TPRED)]
+# D22 = (Dbig%*%t(Dbig))[(NTIME-1-TPRED+1):(NTIME-1), (NTIME-1-TPRED+1):(NTIME-1)]
+# 
+# pred_cov <- 
+# Create a spline over observable time
+svd <- svd(L[1:(T-1),1:(T-1)])
 Z <- svd$v %*% diag(1/svd$d)
 
 # Flip order so most important is first:
@@ -85,6 +108,14 @@ Z <- Z[,1:SPL_K]
 # Now add the first time to it
 Z <- rbind(0, Z)
 
+# Now calculate the kriging weight and kriging variance
+Cov <- tcrossprod(solve(L))
+C11 <- Cov[1:(T-1),1:(T-1)]
+C22 <- Cov[T:(T+TPRED-1),T:(T+TPRED-1)]
+C12 <- Cov[1:(T-1),T:(T+TPRED-1) ]
+krig_wt <- zapsmall(solve(C11, C12))
+krig_var_chol <- t(zapsmall(chol(C22 - t(C12) %*% krig_wt)))
+krig_wt <- rbind(0, krig_wt)
 
 ## PRIOR on variance os spline
 ## Expect the value to grow by 3 orders of magnitude, over 90 days
@@ -93,7 +124,7 @@ Z <- rbind(0, Z)
 ## Trial and error suggests .02 is a good prior for the variance.
 
 # variance on last day is:
-max_var <- max(diag(chol2inv(chol(crossprod(D)))))
+max_var <- Cov[T,T]
 # sd that should give us log(10^4) change  
 sd_scale <- log(10^4) / sqrt(max_var)
   
@@ -101,6 +132,8 @@ sd_scale <- log(10^4) / sqrt(max_var)
 if(!dir.exists(DATA_DIR)) dir.create(DATA_DIR, recursive=TRUE)
 save(covid_df, county_df, X_dow, Z, date_df, 
      file=file.path(DATA_DIR, 'data_frames.Rdata'))
+file.copy(from = 'analysis-reformat/00-PARAMS.R',
+          to = file.path(DATA_DIR, '00-PARAMS.R'))
 
 
 
@@ -121,6 +154,7 @@ state_list <- county_df %>%
 #state_list <- state_list[c(20:25)]
 
 #state_list <- c('15','44','02','56','30')
+state_list <- '09'
 
 if(TN_ONLY) state_list <- '47'
 
@@ -169,26 +203,38 @@ for(i in 1:length(state_list)){
       lpop_s = as.vector(scale(log(pop)))
       )
   
-  
+  group1 = if(max(this_county_df$group1)>1) Xdf %>% pull(group1) else  rep(0, nrow(Xdf))
+  group1_bin <- which(group1>0)
+  group1_bin_id <- group1[group1_bin]
   stan_data <- list(Pop    = Xdf %>% pull(pop),
-                    Y      = this_covid_df %>% filter(Y>0) %>% pull(Y), # using modeled cases
-                    Y_i    = this_covid_df %>% filter(Y>0) %>% pull(i),
-                    Y_t    = this_covid_df %>% filter(Y>0) %>% pull(t),
-                    Y0_i   = this_covid_df %>% filter(Y==0) %>% pull(i),
-                    Y0_t   = this_covid_df %>% filter(Y==0) %>% pull(t),
+                    Y      = this_covid_df %>% pull(Y), # using modeled cases
+                    Y_i    = this_covid_df %>% pull(i),
+                    Y_t    = this_covid_df %>% pull(t),
+                    Y_lin_idx = col_major_sub2ind(i=this_covid_df %>% pull(i),
+                                                   j=this_covid_df %>% pull(t),
+                                                   I=max(this_covid_df$i),
+                                                   J=max(this_covid_df$t)),  
                     I      = max(this_covid_df$i),
-                    T      = max(date_df$t),
-                    N      = nrow(this_covid_df %>% filter(Y>0) ),
-                    N0     = nrow(this_covid_df %>% filter(Y==0) ),
-                    K      = 1,
-                    X      = Xdf %>% select(lpop_s),
-                    X_dow  = X_dow,
+                    T      = max(covid_df$t),
+                    TPRED  = TPRED,
+                    N      = nrow(this_covid_df),
+                    Ki      = 1,
+                    Kt      = 7, 
+                    Kit     = 0,
+                    Xi      = Xdf %>% select(lpop_s),
+                    Xt      = X_dow,
+                    Xit     = array(0,dim=c(nrow(this_covid_df)*(max(covid_df$t)+7),0)),
+                    krig_wt = krig_wt,
+                    krig_var_chol = krig_var_chol,
                     spl_K  = SPL_K,
                     Z_spl  = Z,
                     J1     = if(max(this_county_df$group1)>1) max(Xdf$group1) else 0,
-                    J2     = if(max(this_county_df$group2)>1) max(Xdf$group2) else 0,
-                    group1 = if(max(this_county_df$group1)>1) Xdf %>% pull(group1) else  rep(0, nrow(Xdf)),
-                    group2 = if(max(this_county_df$group2)>1) Xdf %>% pull(group2) else  rep(0, nrow(Xdf)),
+                    J2     = max(Xdf$group2),
+                    group1 = group1,
+                    N1     = length(group1_bin),
+                    group1_bin = group1_bin,
+                    group1_bin_id = group1_bin_id,
+                    group2 =  Xdf %>% pull(group2),
                     taub0_scale = .5*sd_scale,
                     taub1_scale = .5*sd_scale,
                     taub2_scale = sd_scale,
@@ -248,11 +294,11 @@ r <- foreach(i = 1:length(stan_fit_list),
                            thin =            NTHIN,
                            chains =          1,
                            cores =           1,
-                           warmup =          WARMUP*NTHIN,
+                           warmup =          WARMUP,
                            sample_file =     stan_fit_list[[i]]$sample_file,
                            append_samples =  FALSE,
                            init =            init_fun,
-                           control =         list(adapt_delta = 0.99, max_treedepth=12)) ) 
+                           control =         list(adapt_delta = 0.90, max_treedepth=12)) ) 
   #return(1)
 }
 stopCluster(cl)

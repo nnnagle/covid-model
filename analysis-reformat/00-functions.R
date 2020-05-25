@@ -329,12 +329,20 @@ read_and_diagnose <- function(files, par_select, warmup = 0) {
     nest()   %>%
     mutate(
       diag = purrr::map(.x=data, 
-                        .f=~diagnose_var(.x))) %>%
+                        .f=~diagnose_var(.x))) 
+  
+  samples <- samples %>%
     select(
       .variable, 
       diag) %>%
     unnest(
       cols=diag) %>%
     ungroup()
+  return(samples)
+}
+
+col_major_sub2ind <- function(i,j,I,J){
+  indx <- (j-1)*I + i
+  return(indx)
 }
 

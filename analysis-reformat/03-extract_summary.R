@@ -8,6 +8,7 @@
 
 
 source('analysis-reformat/00-PARAMS.R')
+source('/data/covid/tmp/2020-05-24/00-PARAMS.R')
 source('analysis-reformat/00-functions.R')
 # Uses zoom_stan()
 
@@ -139,8 +140,8 @@ data_out <-
     by = c('mystate'='State', 'i', 't')
   ) %>%
   left_join(
-    covid_df,
-    by = c('geoid', 'mygeoid', 'date')
+    covid_df %>% select(-pop),
+    by = c('geoid', 'date','t')
   ) %>%
   select(-mygeoid, -mystate, -i, -t)
 

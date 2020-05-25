@@ -1,5 +1,5 @@
-DATE <- '2020-05-20' # Date of run
-TN_ONLY <- TRUE
+DATE <- '2020-05-24' # Date of run
+TN_ONLY <- FALSE
 CLEAN_DIR = TRUE # SET TO TRUE TO DELETE the DATA_DIR
 NYT_FILE <- NULL
 ACS_FILE <- NULL
@@ -9,11 +9,11 @@ SAMPLES_ROOT <- ifelse(Sys.info()[["nodename"]] == 'quetelet',
                        '/data/covid/tmp',
                        'tmp') # All samples will be stored under {SAMPLES_ROOT}/{DATE}/{STATE}
 if(TN_ONLY) SAMPLES_ROOT <- file.path(SAMPLES_ROOT, 'TN')
-NITER = 3000
+NITER = 1500 # Number of  iterations (before thinning)
 NTHIN = 2
 NCHAINS = 4
 WARMUP = (NITER/NTHIN)/2
-WARMUP = 500 # WARMUP is number of retained (after thinning) samples
+WARMUP = 500 # WARMUP is number of retained (before thinning) samples
 NNODES = ifelse(Sys.info()[["nodename"]] == 'quetelet',
                 30,
                 80) # Number of nodes in cluster
@@ -25,7 +25,7 @@ RESULTS_DIR <- file.path('results')
 ZERO_PAD = 7 # Number of days of zeros to add before first obs for each county
 TPRED = 7 # Number of days forward to predict (from last data day, not from Sys.Date())
 #SPL_K = 7 # Number of spline basis functions to use. basis has approx K shifts in slope (approx K/2 peaks and K/2 valleys)
-SPL_K = floor(as.numeric(as.Date(DATE)+TPRED-as.Date(DATE_0))/7)-1 # My logic here is we want fewer than one peak per week.
+SPL_K = floor(as.numeric(as.Date(DATE)+TPRED-as.Date(DATE_0))/9)-1 # My logic here is we want fewer than one peak per week.
 #SPL_K = floor(as.numeric(as.Date(DATE)+TPRED-as.Date(DATE_0))/4)-1 # Trying for a little more flexibility than above.
 
 
