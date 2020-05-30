@@ -49,6 +49,11 @@ diagnostic_df <- diagnostic_df %>%
                                                       starts_with('tau'),
                                                       starts_with('log_lambda')))))
 
+# timing info as well as other chain parameters
+diagnostic_df <- mutate(diagnostic_df,
+    chain_info = future_map(files, get_sampling_params)
+  )
+
 ###################################################################
 # Determine which chains to use here....
 # 1. if diag is good, if so, use all chains
@@ -72,7 +77,11 @@ diagnostic_df %>%
   unnest(cols=diag) %>%
   arrange(ess_bulk) %>%
   head()
-  
+
+# boxplot of chain durations
+plot_run_time(diagnostic_df)
+
+
 # REPLACE THIS NEXT LINE!!!!!!!!!!!!
 diagnostic_df <- mutate(diagnostic_df, good_files=files)
 
