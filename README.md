@@ -35,16 +35,6 @@ There are now 4 files under `data/`
     US. Contains example variables from ACS (now including median age)
     as well as county membership of MSAs
 
-### older washingston data
-
-  - `washington-acs.RData`: data.frame including `sf` geometries.
-    Contains example variables from ACS as well as county membership of
-    MSAs
-  - `washington-covid19.csv`: csv of daily county level covid19 cases
-    and deaths.
-
-Both of these files can be recreated with the scripts in `data-raw/`
-
 ## Daily Mobility data
 
 I didn’t pull it into this but you might be interested in using
