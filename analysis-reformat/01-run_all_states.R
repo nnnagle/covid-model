@@ -13,7 +13,7 @@ source('analysis-reformat/00-functions.R')
 source('analysis-reformat/00-proc_covid.R')
 source('analysis-reformat/00-proc_county.R')
 
-#if(CLEAN_DIR) unlink(DATA_DIR, recursive=TRUE)
+if(CLEAN_DIR) unlink(DATA_DIR, recursive=TRUE)
 
 if (is.null(NYT_FILE)) {
   
@@ -154,7 +154,7 @@ state_list <- county_df %>%
 #state_list <- state_list[c(20:25)]
 
 #state_list <- c('15','44','02','56','30')
-state_list <- '09'
+#state_list <- '09'
 
 if(TN_ONLY) state_list <- '47'
 
