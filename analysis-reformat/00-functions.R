@@ -346,3 +346,85 @@ col_major_sub2ind <- function(i,j,I,J){
   return(indx)
 }
 
+get_sampling_params <- function(files) {
+  
+  if (length(files) == 0) return(tibble::tibble())
+  
+  params_df <- lapply(files, parse_samples_file)
+  params_df <- dplyr::bind_rows(params_df)
+  params_df <- janitor::clean_names(params_df)
+  
+  params_df <- params_df %>%
+    dplyr::mutate(
+      chain_id = readr::parse_number(gsub(".*samples_grw_", "", sample_file))
+    ) %>%
+    dplyr::mutate_if(is.character, readr::parse_guess)
+  
+  params_df
+}
+
+parse_samples_file <- function(samples_file) {
+  
+  grep_cmd <- glue::glue("grep '^#' {samples_file}")
+  params_raw <- as.data.frame(data.table::fread(cmd = grep_cmd, sep = ",", sep2 = " ", fill = TRUE))
+  
+  params_vec <- gsub("#|# ", "", params_raw[1:nrow(params_raw), 1])
+  params_vec <- stringr::str_trim(params_vec)
+  params_equal <- params_vec[grep("=", params_vec)]
+  params_split <- stringr::str_split(params_equal, "=")
+  
+  params_list <- lapply(params_split, function(x){
+    out_df <- tibble::tibble(x[[2]])
+    names(out_df) <- x[[1]]
+    
+    out_df
+  })
+  
+  params_df <- dplyr::bind_cols(params_list) %>%
+    dplyr::mutate(
+      time_warm_up = readr::parse_number(params_vec[grep("seconds \\(Warm-up\\)", params_vec)]),
+      time_sampling = readr::parse_number(params_vec[grep("seconds \\(Sampling\\)", params_vec)]),
+      time_total = readr::parse_number(params_vec[grep("seconds \\(Total\\)", params_vec)])
+    )
+  
+  params_df
+}
+
+plot_run_time <- function(diagnostic_df) {
+  require(ggplot2)
+  require(hms)
+  
+  chain_df <- 
+    diagnostic_df %>%
+    select(-diag, -files) %>%
+    unnest(cols = chain_info) %>%
+    left_join(
+      distinct(covidmodeldata::acs_names, state_fips, state_name),
+      by = c("State" = "state_fips")
+    )
+  
+  chain_plot <- 
+    chain_df %>%
+    mutate(
+      state_name = forcats::fct_reorder(state_name, time_total)
+    ) %>%
+    ggplot(
+      aes(x = time_total, y = state_name)
+    ) +
+    geom_boxplot() +
+    theme_minimal() +
+    scale_x_time() +
+    labs(
+      title = NULL,
+      subtitle = glue::glue(
+        "Shortest Running Chain: {hms::hms(min(chain_df$time_total))}",
+        "Longest Running Chain:  {hms::hms(max(chain_df$time_total))}",
+        "Warm Up: {unique(chain_df$warmup)}\tIterations: {unique(chain_df$iter)}",
+        .sep = "\n"
+      ),
+      x = "Duration",
+      y = NULL
+    )
+  
+  chain_plot
+}
