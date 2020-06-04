@@ -1,6 +1,6 @@
 #ROOT <- '/home/nnagle/Dropbox/students/Piburn/covid-model'
 #source('analysis-reformat/00-PARAMS.R')
-DATE <- '2020-06-01'
+DATE <- '2020-06-02'
 source(file.path('/data/covid/tmp', DATE, '00-PARAMS.R'))
 source('analysis-reformat/00-functions.R')
 

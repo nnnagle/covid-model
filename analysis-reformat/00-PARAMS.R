@@ -1,9 +1,10 @@
-DATE <- '2020-06-02' # Date of run
+DATE <- '2020-06-03' # Date of run
 TN_ONLY <- FALSE
 CLEAN_DIR = TRUE # SET TO TRUE TO DELETE the DATA_DIR
 NYT_FILE <- NULL
 ACS_FILE <- NULL
 DATE_0 <- '2020-03-01' # First date to use
+DATE_N <- DATE # Last date to use 
 ##ROOT = ""
 SAMPLES_ROOT <- ifelse(Sys.info()[["nodename"]] == 'quetelet',
                        '/data/covid/tmp',

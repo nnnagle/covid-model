@@ -1,10 +1,11 @@
 library(rstan)
 library(tidyverse)
 library(shinystan)
+DATA_DIR <- '/data/covid/tmp/TN/2020-05-31/'
 
 source('analysis-reformat/00-functions.R')
-DATE <- '2020-06-01'
-source(sprintf('/data/covid/tmp/%s/00-PARAMS.R', DATE))
+DATE <- '2020-05-31'
+source(sprintf('%s/00-PARAMS.R', DATA_DIR))
 
 
 
@@ -53,6 +54,36 @@ draws_lambda <-
     by=c('geoid','date')
   )
 
+
+draws_Y <- 
+  draws %>%
+  filter(
+    str_detect(.variable, 'Y_sim')) %>%
+  separate(
+    .variable, 
+    sep='\\.', 
+    into=c('variable', 'i','t')) %>%
+  mutate(
+    state_name='Tennessee',
+    i = as.integer(i), 
+    t=as.integer(t)
+  )   %>%
+  left_join(
+    county_df %>%
+      select(state_name, i, county_name, geoid, pop, group1,group2, group1_name, group2_name),
+    by=c('state_name','i')
+  ) %>%
+  left_join(
+    date_df %>%
+      select(
+        t,
+        date
+      )
+  ) %>%
+  left_join(
+    covid_df %>% select(geoid, date, new_cases),
+    by=c('geoid','date')
+  )
 
 county_lambda <- 
   draws_lambda %>%
@@ -106,8 +137,7 @@ county_out <-
   select(-first_case)
 
 alpha = .1
-county_out %>%
-  filter(county_name=='Knox') %>%
+plot_00 <- county_out %>%
   ggplot(aes(x=date)) +
   geom_ribbon(aes(ymin = q05, ymax=q95), alpha=alpha) +
   geom_ribbon(aes(ymin = q15, ymax=q85), alpha=alpha) +
@@ -118,7 +148,8 @@ county_out %>%
   geom_line(aes(y=q50)) +
   labs(
     y='Cases', 
-    title = 'Actual and Predicted New Cases in Knox County') 
+    title = 'Actual and Predicted New Cases in Knox County') +
+  facet_wrap(~county_name, scales = 'free_y')
   
 
 
@@ -151,7 +182,7 @@ ggplot(data=trend_14,aes(x=lag14)) +
                          as.character(round(mean(trend_14$lag14<0),3))))
 
 write_csv(county_out %>% select(-variable),
-          path=file.path('results',sprintf('results_TN_county_%s.csv', DATE)))
+            path=file.path('results/test',sprintf('results_TN_county_%s.csv', DATE)))
 
 
 
