@@ -37,7 +37,8 @@ covid_df <- proc_covid(
   ZERO_PAD = ZERO_PAD
 ) %>%
   left_join(nyt_data %>% select(geoid, date, new_cases)) %>%
-  filter(date <= min(as_date(DATE_N), as_date(DATE)))
+  filter(date <= min(as_date(DATE_N), as_date(DATE))) %>%
+  filter(substr(geoid,1,2) != '72')
 
 
 if (is.null(ACS_FILE)) {
@@ -49,7 +50,7 @@ if (is.null(ACS_FILE)) {
 county_df <- proc_county(
   raw_data = acs_data,
   geoid.list = unique(covid_df$geoid)
-)
+) 
 
 covid_df <- remove_prisons(covid_df, county_df) %>%
   filter(!is.na(Y))
@@ -129,9 +130,11 @@ krig_wt <- rbind(0, krig_wt)
 ## Trial and error suggests .02 is a good prior for the variance.
 
 # variance on last day is:
-max_var <- Cov[T,T]
+#max_var <- Cov[T,T]
+max_var <- Cov[60,60]
 # sd that should give us log(10^4) change  
 sd_scale <- log(10^2) / sqrt(max_var)
+sprintf('standard dev: %s', as.character(sd_scale))
   
   
 if(!dir.exists(DATA_DIR)) dir.create(DATA_DIR, recursive=TRUE)
@@ -240,9 +243,9 @@ for(i in 1:length(state_list)){
                     group1_bin = group1_bin,
                     group1_bin_id = group1_bin_id,
                     group2 =  Xdf %>% pull(group2),
-                    taub0_scale = .5*sd_scale,
-                    taub1_scale = .5*sd_scale,
-                    taub2_scale = sd_scale,
+                    taub0_scale = 2*1/sqrt(3)*sd_scale,
+                    taub1_scale = 1/sqrt(3)*sd_scale,
+                    taub2_scale = 1/sqrt(3)*sd_scale,
                     sample_flag = TRUE,
                     lppd_flag = FALSE,
                     post_pred = FALSE
@@ -284,11 +287,12 @@ registerDoParallel(cl)
 init_fun <- function(chain_id) list( a = runif(1,-13,-9),
                                      tau_a0 = runif(1,0,.02),
                                      tau_a1 = runif(1,0,.02),
-                                     tau_a2 = runif(1,0,2),
+                                     tau_a2 = runif(1,0,.02),
                                      raw_tau_splb0 = runif(1,0,.02),
                                      raw_tau_splb1 = runif(1,0,.02),
-                                     raw_tau_splb2 = runif(1,0,2),
-                                     phi = runif(1,.1,.9))
+                                     raw_tau_splb2 = runif(1,0,.02),
+                                     #phi = runif(1,.1,.9))
+                                     inv_phi = runif(1,1,10))
 
 
 r <- foreach(i = 1:length(stan_fit_list),

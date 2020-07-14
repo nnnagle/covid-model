@@ -108,6 +108,7 @@ remove_prisons <- function(covid_df, county_df){
       by='geoid') %>%
     arrange(geoid, date) %>%
     mutate(Yold = Y)
+  if(any(!is.finite(covid_df$pop))) stop('missing data in pop')
   
   MAX <- 0
   for(i in 2:nrow(covid_df)){
