@@ -65,7 +65,8 @@ parameters{
   real<lower=0>   raw_tau_splb0;  // unscaled: sd on spline coefs
   real<lower=0>   raw_tau_splb1;  // unscaled: sd on spline coefs
   real<lower=0>   raw_tau_splb2;  // unscaled: sd on spline coefs
-  real<lower=0>   phi;   // inv_phi is overdispersin
+  //real<lower=0>   phi;   // inv_phi is overdispersin
+  real<lower=0>   inv_phi;
   vector[I]       log_phi_i;//
   matrix[I,spl_K]  spl_b0;     // county spline coefficients
   matrix[J1,spl_K] spl_b1;     // level 1 spline coefficients
@@ -77,8 +78,10 @@ transformed parameters{
   real tau_splb0; // scale on Spline coefs
   real tau_splb1; // scale on Spline coefs
   real tau_splb2; // scale on Spline coefs
+  real phi;
   vector[I]  phi_i;
   
+  phi = 1/inv_phi;
   //phi = 1/a_gamma;        // var NB(2) = mu + mu^2/phi
                           // var NB(1) = mu + mu/phi
   a2[1] = 0;
@@ -130,8 +133,6 @@ model {
     log_mu += Xit*theta_it;
   }
   
-
-  
   a ~ normal(-11,10);
   raw_a2 ~ normal(0,1);  // exp(-11) ~ .1 cases in 10,000 persons we're going to put the overall intercept in the metro level
   a1 ~ normal(0,1);
@@ -151,7 +152,8 @@ model {
   raw_tau_splb1 ~ normal(0,1);
   raw_tau_splb2 ~ normal(0,1);
   
-  phi ~ normal(.25,.5); // DON'T FORGET: phi in inverse relative to glm()
+  //phi ~ normal(.25,.5); // DON'T FORGET: phi in inverse relative to glm()
+  inv_phi ~ normal(0,5);
   log_phi_i ~ normal(0,1); // N(0,.2): most of exp(log_phi_i) will be between .5 and 2 
   theta_i ~ normal(0, .5); // the range of +/- 1 ~ 1 order of magnitude
   theta_t ~ normal(0, .5); // the range of +/- 1 ~ 1 order of magnitude
